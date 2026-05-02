@@ -1,5 +1,7 @@
 # Specification: LLM Model Strategy (`spec_LLM.md`)
 
+> **0→1 baseline.** Post-0→1 changes captured in [`../decisions.md`](../decisions.md) — notably **D6** (Architect rewinds use Sonnet, not Opus) and **D15** (`ANTHROPIC_API_KEY`, not `CLAUDE_API_KEY` as below).
+
 This document defines the Large Language Model (LLM) configuration and tiering strategy for the `mle_agent`.
 
 

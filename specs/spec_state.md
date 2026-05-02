@@ -1,5 +1,7 @@
 # State Graph Specification (`spec_state.md`)
 
+> **0→1 baseline.** Post-0→1 changes captured in [`../decisions.md`](../decisions.md) — notably **D7** (auto-commit at every Action Node exit), **D13** (two-tier iteration budget: 10 Router redirect + 15 graph END), **D14** (context-window sliding: first message + last 20 pairs), and **D6** (Architect rewinds use Sonnet).
+
 > **SSoT** for LangGraph node definitions, State schema, and edge rules.
 > Memory file definitions → `spec_memory.md`. Tool details → `spec_tool.md`.
 

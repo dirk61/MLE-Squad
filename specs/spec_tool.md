@@ -1,5 +1,7 @@
 # Specification: Universal_ToolNode Implementation (`spec_tool.md`)
 
+> **0→1 baseline.** Post-0→1 changes captured in [`../decisions.md`](../decisions.md) — notably **D3** (`run_bash_with_truncation` default timeout is `300s`, not `120s` as below), **D12** (selective `bash_history.log` filter — only logs Python script runs and errors), and **D10** (partial-output capture on timeout, last 2K chars).
+
 This document defines the discrete tools accessible via the `Universal_ToolNode`. This node acts as a secure, sandboxed execution environment strictly for Action Nodes. 
 
 The core philosophy of this toolset is **Context Preservation and Fault Tolerance**. Tools are designed to fail gracefully, truncate runaway outputs, and enforce surgical code edits over full-file rewrites.

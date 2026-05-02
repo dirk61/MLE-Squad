@@ -1,5 +1,7 @@
 # Prompting Specification — MLE Agent
 
+> **0→1 baseline.** Post-0→1 changes captured in [`../decisions.md`](../decisions.md) — notably **D1** (ML spec is *context and direction*, not binding prescription — explicit in current Action Node prompts), **D2** (Architect HARD STOPs), **D8** (no medal targets), **D9** (Evaluator restricted to 2 blocker types).
+
 ## Philosophy
 
 Prompt as a manager, not a script writer. A good instruction encodes **what success looks like** and **what is off-limits** — it does not narrate the steps. A node briefed with an identity and a constraint set will find its own route; a node handed a procedure becomes brittle the moment reality diverges from the script.

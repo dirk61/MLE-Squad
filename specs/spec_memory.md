@@ -1,5 +1,7 @@
 # Memory Architecture Specification (`spec_memory.md`)
 
+> **0→1 baseline.** Post-0→1 changes captured in [`../decisions.md`](../decisions.md) — notably **D5** (workspace bootstrap pins `--python 3.12`, strips `VIRTUAL_ENV`/`CONDA_PREFIX`, symlinks prompts/, writes `.gitignore` at bootstrap, copies dataset from staging — none of which is reflected in §0 below).
+
 > **SSoT** for macro-memory file definitions, workspace isolation, and agent memory operating rules.
 > Node definitions → `spec_state.md`. Protocol step sequences → `prompts/protocols/`.
 

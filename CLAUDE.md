@@ -133,3 +133,29 @@ Spec files follow a two-phase discipline:
    * *Next Steps:* [Exact command or file the next agent should start with]
 3. **Commit:** `git commit -m` if a sub-task is complete or stable.
 * Note: the mle_agent has its own Sign-Off protocol — see `prompts/protocols/sign_off.md`.
+
+### [ITERATION-MODE CAPTURE RULE] — applies post-0→1
+
+After 0→1 completion (Phases 1–6), the Shift Handover protocol still applies. The rule below is added on top.
+
+**When iteration produces a load-bearing change, capture it in [`decisions.md`](decisions.md) BEFORE the [SIGN-OFF] commit.**
+
+Trigger — fire when the change involves any of:
+* A tradeoff resolution ("we picked X over Y because…")
+* A philosophy shift (e.g., "spec is context, not prescription")
+* A dropped approach (e.g., "removed medal targets — caused loops")
+* An architectural choice with non-local consequences
+* Behavior added in code that diverges from any spec or prompt
+* A named distinction worth a future reader
+
+Don't fire for routine bug fixes, doc tweaks, or trivial refactors.
+
+**The bar:** *would a reader six months from now reading the commit log alone be confused about why this is the way it is?* If yes, capture.
+
+**Format:** new `## Dn` entry in `decisions.md`. Match root vault's pattern (bold title, date, decision, reasoning, to-revisit-if). Cross-reference the commit hash inline. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header if the decision invalidates an original-spec claim.
+
+**Drift cross-check rule.** Specs, prompts, and code can drift apart silently in this project. When you change a behavior in one of them, scan the other two for stale claims about the same behavior:
+* If a divergence existed and is **intentional** (e.g., D13: prompt says iter ≥10, code says >15 — defense in depth), document it in `decisions.md`.
+* If it's **accidental**, fix the inconsistent one in the same commit. Don't leave drift uncaptured.
+
+The cross-check applies in both directions — code changes scan specs+prompts, prompt changes scan specs+code, spec changes scan code+prompts.

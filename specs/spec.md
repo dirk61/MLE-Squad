@@ -4,6 +4,31 @@
 
 ---
 
+## Current state vs original spec
+
+> This spec is the **0→1 baseline** (Phases 1–6, 2026-04-12). The agent has iterated meaningfully since — see [`../decisions.md`](../decisions.md) for the canonical post-0→1 record. Every spec file in this folder is 0→1 baseline; check `decisions.md` before assuming any specific behavior still holds.
+
+Specific deltas (see `decisions.md` for full reasoning):
+
+- API key: `ANTHROPIC_API_KEY`, not `CLAUDE_API_KEY` as below. — [D15]
+- Architect rewinds use Sonnet, not Opus. Opus is first-entry only. — [D6]
+- Default bash timeout is `300s`, not `120s` as in spec_tool.md. — [D3]
+- Wall-clock global cap of 4hr (`GRAPH_WALL_CLOCK_TIMEOUT=14400`, env-overridable). — [D3]
+- ML spec at runtime is **context and direction**, not binding prescription. — [D1]
+- Workspace bootstrap pins `--python 3.12`, strips `VIRTUAL_ENV`/`CONDA_PREFIX`, symlinks prompts/, writes `.gitignore`. — [D5]
+- Auto-commit happens automatically at every Action Node exit. — [D7]
+- Iteration budget: two-tier (10 = Router redirect to Evaluator; 15 = graph END). — [D13]
+- Context-window sliding: first message + last 20 exchange pairs. — [D14]
+- Medal targets removed from prompts; static lookup retained for competition ID detection only. — [D8]
+- Evaluator restricted to 2 blocker types (`SubmissionFail`, `MetricFloor`). — [D9]
+- Submission-before-optimization rule mandatory. — [D11]
+- Logging hierarchy: selective bash_history filter, JSONL trace per round, `/data1` server log. — [D12]
+- A2A: 512MB max content, sample_submission fallback, partial-output capture. — [D10]
+- Architect HARD STOPs: no `.py` files, no training cmds, no commands >60s. — [D2]
+- CV-as-primary-signal + plateau detection at <0.3% relative delta over 2 runs. — [D4]
+
+---
+
 ## System Overview
 
 The `mle_agent` is an autonomous ML engineering agent. It receives a competition problem and dataset from the Green Agent via A2A, runs a multi-node LangGraph to build an ML pipeline, and returns a `submission.csv`.
