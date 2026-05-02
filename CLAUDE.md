@@ -159,3 +159,7 @@ Don't fire for routine bug fixes, doc tweaks, or trivial refactors.
 * If it's **accidental**, fix the inconsistent one in the same commit. Don't leave drift uncaptured.
 
 The cross-check applies in both directions — code changes scan specs+prompts, prompt changes scan specs+code, spec changes scan code+prompts.
+
+**Active enforcement: `/sync` operation.** The cross-check rule above is the *passive intent* — discipline written here so future-Claude reads it. The active enforcement is `/sync`, defined at [`operations/sync.md`](operations/sync.md). Run periodically (or whenever a session is about to wind down) to mechanically scan all 7 artifact axes for drift. D8 propose-don't-commit applies; sync produces a report, Dirk triages, sync-driven edits commit with a `sync:` prefix. The slash command at `.claude/commands/sync.md` is a thin wrapper.
+
+**Deferred register at [`decisions.md`](decisions.md) `## Deferred`.** Milestone-gated divergences (e.g., post-2026-05-03 work) live in the `## Deferred` section of `decisions.md`, with `[Fn]` entries. `/sync` references this register; findings matching an entry get the `**Deferred:**` marker rather than `**Proposed:**`.

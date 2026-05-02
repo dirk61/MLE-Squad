@@ -285,3 +285,26 @@ Plus a "validate" mechanism: agent can probe submission format by sending text "
 **To revisit if:** Anthropic SDK changes its env var convention (unlikely); or if we ever need multiple API keys per process (Sonnet vs. Opus billing accounts, etc.).
 
 **Stale spec note:** `specs/spec_LLM.md` still says `CLAUDE_API_KEY` in §2 (Credentials). See `specs/spec.md` delta header.
+
+---
+
+## Deferred
+
+Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.
+
+Lifecycle: graduate-out — when a deferral fires, its entry moves to a new `## Dn` decision (or is deleted if no longer relevant). Don't leave stale entries here.
+
+### F1
+**Post-2026-05-03 doc-protocol redesign — replace cheap-fix iteration-mode docs with proper structural redesign**
+
+**Gating condition:** competition deadline 2026-05-03 passes; project-priority phase ends.
+
+**Background:** The current iteration-mode doc setup (`decisions.md` + spec delta headers + 1-line spec notes + `## Active`/`## Archived` todo split, captured in [whiteboard `### Project doc-protocols are phase-specific`](../../../whiteboard.md)) is a cheap-fix that stops the docs from misleading readers but doesn't fully solve the iteration-mode protocol question. The structural redesign — `architecture.md` replacing `spec.md` as the living description, ADR-style `decisions/` folder, rolling backlog vs punch-list `todo.md` — is real work that wasn't appropriate to do under deadline pressure.
+
+**Proposed action when gate opens:**
+1. Decide whether to fully replace `specs/` with a single `architecture.md` (living document) or keep specs as 0→1 baseline and only modify the iteration-mode artifacts.
+2. Decide whether `decisions.md` should split into per-decision ADR files in a `decisions/` folder (one Dn per file) or stay as a single growing file.
+3. Update `CLAUDE.md` §9 to describe whatever new protocol is adopted; the iteration-mode capture rule + drift cross-check rule should survive in some form.
+4. Decide whether to standardize this across all sub-groups with non-empty dev layer (vehicle_llm_finetune will hit the same wall eventually).
+
+**Why deferred:** structural redesign is post-deadline work. Current cheap-fix is sufficient for the 2026-05-03 deadline window.
