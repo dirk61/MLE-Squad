@@ -12,6 +12,7 @@ wheels/
 
 # Virtual environments
 .venv
+kaggle.txt
 
 # Agent Memory Files
 # progress.txt

@@ -12,6 +12,17 @@ We evaluated across a diverse set of competitions spanning different categories 
 **MLE Agent** is an autonomous system that solves machine learning problems by simulating a high-functioning *MLE team*: 
 * **Role-Based Specialization:**: Instead of a single "do-it-all" prompt, the system utilizes a **cyclic graph** to coordinate four specialized agents—**Architect, Data Engineer, Model Engineer, and Evaluator**—governed by a strategic **Router (Manager)**.
 * **Hierarchical Memory for Team Collaboration:** Think of a typical engineering team's collab workflow: Slack for updates, Git for version control, and shared docs for project specs. Acting the same way, our specialist agents ONLY pass compact handoff messages to their successors, commit every major code change to a Git-versioned workspace, and collectively maintain local files for architectural blueprints, data distribution summaries, and prioritized TODO lists. By offloading project state to disk, the system prevents the "context window collapse" typical of long-running tasks. This allows agents to instantly re-orient by auditing the file system upon entry, ensuring that critical engineering insights are never lost to token limitations.-->
+<!--MLE-Squad is an autonomous system that solves machine learning problems by simulating the workflow of a high-functioning engineering team. The architecture follows a three-fold design philosophy to ensure robustness on complex, long-running tasks:
+
+
+
+1. Structure: Instead of one prompt doing everything, a Router coordinates four specialists—Architect, Data Engineer, Model Engineer, and Evaluator. This allows the team to move back and forth between tasks as needed—for example, sending a model back to the data stage if features are missing—rather than following a rigid, one-way sequence.
+
+2. Workflow & Memory: To prevent the system from "forgetting" the plan over long runs (Context Window Collapse), every agent writes its work to a Git-versioned workspace.Agents pass concise handoff notes to one another and rely on shared files for blueprints and checklists. This allows an agent to re-orient itself instantly by reading the disk rather than processing thousands of lines of previous chat history.
+
+3. Project Oversight: The system enforces practical boundaries. The Router acts as a lead, evaluating the Evaluator's feedback to decide if a task needs a "do-over" or if the entire plan needs to pivot. It also sets hard limits on time and compute costs, preventing the agents from wasting tokens on endless tuning loops that only offer marginal gains.
+
+This architecture currently validates itself through top-tier performance on the AgentBeats leaderboard (April 2026), where it holds the #1 rank in 4 out of 6 featured competitions. While we are still optimizing it through LLM-as-a-judge evaluation, MLE-Squad already proves to be a robust and scalable framework for autonomous machine learning engineering.-->
 
 > **MLE-Squad** is an autonomous system that solves machine learning problems by simulating a high-functioning engineering team. We abandoned the fragile "do-it-all" mega prompt in favor of a distributed architecture that maps directly to real-world workflows:
 

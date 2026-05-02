@@ -1,4 +1,4 @@
-Current Objective: Build Phase 6 — Docker Build & End-to-End Test
-Current State: Phase 1+2+3+4+5 COMPLETE. src/graph.py: StateGraph with 5 nodes (System_Architect, Router_Brain, Data_Engineer, Model_Engineer, Evaluator), all Action Nodes edge to Router, Router has conditional edges dispatching by current_phase to next Action Node or END. src/agent.py rewritten: extracts tar to staging dir, detects competition_id (from tar paths or instructions text), initializes graph state, runs graph via asyncio.to_thread(app.invoke, ...), reads submission.csv from workspace, validates with green agent, submits A2A artifact. Note: Pydantic v1 deprecation warning from langchain_core on Python 3.14 — upstream issue, not our code.
-Blockers: None
-Next Steps: Start Phase 6 — verify Docker build (uv sync --locked, prompts included), then full end-to-end test with agentbeats-run scenario.toml.
+Current Objective: Post-Phase-6 — agent is built, deployed, and benchmarked. Currently iterating on README/docs and tuning prompts/memory based on benchmark results.
+Current State: All 6 phases COMPLETE. Docker image publishes to ghcr.io/dirk61/mle_agent:latest via CI. Agent has run end-to-end on real MLE-Bench competitions (jigsaw benchmarked; leaderboard standing updated). Recent work: README polish (visuals, tables, project overview), prompt hardening (Architect guard rails, auto-commit gitignore, hardcoded prompts fix), token optimization (Evaluator→Haiku, Architect rewinds→Sonnet). Working tree: README.md modified (uncommitted visual tweaks).
+Blockers: None.
+Next Steps: User-directed. Options on the table — finish/commit README tweaks, address Pydantic v1 deprecation warning from langchain_core on Py 3.14, or further prompt/memory tuning based on next benchmark run.

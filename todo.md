@@ -30,5 +30,5 @@
 - [x] Rewrite `Agent.run()`: extract competition tar, init graph state (instructions→messages, dataset path→handoff_message), invoke graph, on END read `submission.csv` and submit A2A artifact — Ref: spec_state.md → Graph Lifecycle, CLAUDE.md §2
 
 ## Phase 6: Build & End-to-End Test
-- [ ] Verify Docker build: `uv sync --locked`, image builds with prompts included — Ref: CLAUDE.md §7
-- [ ] Full end-to-end test: `cd /home/six004/agentbeats/agentbeats-tutorial && uv run agentbeats-run scenario.toml --show-logs` — Ref: CLAUDE.md §5
+- [x] Verify Docker build: `uv sync --locked`, image builds with prompts included — Ref: CLAUDE.md §7
+- [x] Full end-to-end test: `cd /home/six004/agentbeats/agentbeats-tutorial && uv run agentbeats-run scenario.toml --show-logs` — Ref: CLAUDE.md §5
