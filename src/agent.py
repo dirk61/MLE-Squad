@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import gc
 import io
 import logging
 import os
@@ -14,6 +15,7 @@ from a2a.types import FilePart, FileWithBytes, Message, Part, Role, TaskState, T
 from a2a.utils import get_message_text, new_agent_text_message
 
 from messenger import Messenger
+from src.observability import resource_snapshot
 
 log = logging.getLogger("mle_agent")
 
@@ -30,7 +32,7 @@ class Agent:
         Subsequent invocation on the same context: handles validation
         replies from the green agent.
         """
-        log.info("Agent.run() — %d parts", len(message.parts))
+        log.info("Agent.run() — %d parts | %s", len(message.parts), resource_snapshot())
 
         # ── Detect validation reply from green agent ─────────────────────
         has_file = any(isinstance(p.root, FilePart) for p in message.parts)
@@ -61,10 +63,14 @@ class Agent:
 
         staging_dir = tempfile.mkdtemp(prefix="mle_staging_")
         tar_members: list[str] = []
+        tar_size_mb = len(tar_bytes) // (1 << 20)
         try:
             with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
                 tar_members = [m.name for m in tar.getmembers()]
-                log.info("Tar members (%d): %s", len(tar_members), tar_members[:10])
+                log.info(
+                    "Tar members (%d, gz=%dMB): %s",
+                    len(tar_members), tar_size_mb, tar_members[:10],
+                )
                 tar.extractall(path=staging_dir, filter="data")
         except Exception as e:
             log.error("Tar extraction failed: %s", traceback.format_exc())
@@ -73,6 +79,15 @@ class Agent:
                 new_agent_text_message(f"Failed to extract competition tar: {e}"),
             )
             return
+
+        # Free the in-memory tar buffer immediately — for large competitions
+        # (dogs-vs-cats: ~840MB gz) it would otherwise stay pinned through the
+        # entire LangGraph run and triple-budget against /tmp tmpfs (840MB
+        # bytes + 1.1GB extracted + 1.1GB workspace copy = 3GB+ RAM pressure
+        # in CI). gc.collect() is a one-time ~200ms cost worth the headroom.
+        del tar_bytes
+        gc.collect()
+        log.info("[PHASE] tar_extracted | %s", resource_snapshot())
 
         # ── Step 2: Extract instructions and detect competition ──────────
         instructions = get_message_text(message) or "No instructions provided."
@@ -109,7 +124,7 @@ class Agent:
         # ── Step 4: Run the graph ────────────────────────────────────────
         # Graph nodes are synchronous — run in a thread to avoid blocking
         # the async event loop.
-        log.info("Invoking graph...")
+        log.info("[PHASE] graph_invoked | %s", resource_snapshot())
         try:
             final_state = await asyncio.to_thread(app.invoke, initial_state)
         except Exception as e:

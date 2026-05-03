@@ -22,6 +22,7 @@ import time
 
 from src import tools
 from src.llm import MODEL_MAP, call_llm
+from src.observability import resource_snapshot
 
 log = logging.getLogger("mle_agent")
 from src.medal_thresholds import get_medal_thresholds
@@ -304,7 +305,10 @@ def _run_react_loop(
     tool_rounds = 0
     # Track wall-clock start for the entire graph (shared via env marker)
     _init_wall_clock()
-    log.info("[%s] Starting ReAct loop (tier=%s) [%.1f min elapsed]", node_name, tier, _elapsed_min())
+    log.info(
+        "[%s] Starting ReAct loop (tier=%s) [%.1f min elapsed] | %s",
+        node_name, tier, _elapsed_min(), resource_snapshot(),
+    )
 
     try:
         while tool_rounds < recursion_limit:
@@ -401,6 +405,11 @@ def _run_react_loop(
     # Safety net: auto-commit any uncommitted work the LLM left behind.
     # The Sign-Off protocol asks the LLM to commit, but it doesn't always.
     _auto_commit(workspace_dir, node_name)
+
+    log.info(
+        "[%s] Exiting ReAct loop after %d rounds [%.1f min] | %s",
+        node_name, tool_rounds, _elapsed_min(), resource_snapshot(),
+    )
 
     return {
         "messages": messages,
