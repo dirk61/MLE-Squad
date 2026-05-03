@@ -7,6 +7,12 @@ Embed this block verbatim into any Action Node prompt that participates in the s
 ## Before exiting this node, execute these steps in order:
 
 ```
+0. Process hygiene
+   If you started any background process this shift via bash_async, it must
+   be terminated before sign-off. Either wait_and_tail until status=exited,
+   or kill_process(pid). The harness will sweep stragglers, but leaving
+   work for the harness loses the final log tail you would have captured.
+
 1. edit_file_chunk("ml_todo.md")
    Mark completed tasks: change [ ] to [x] for everything finished this shift.
    Do not mark tasks complete that are partially done or blocked.

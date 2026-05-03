@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from src.state import AgentState
 from src.tools import (
+    bash_async,
     dynamic_task_manager,
     edit_file_chunk,
+    kill_process,
     read_file,
     run_bash_with_truncation,
+    wait_and_tail,
     write_file,
 )
 
@@ -80,6 +83,25 @@ def _dispatch(
             timeout_seconds=inp.get("timeout_seconds", 300),
             workspace_dir=workspace_dir,
         )
+
+    if name == "bash_async":
+        return bash_async(
+            command=inp["command"],
+            log_path=inp["log_path"],
+            workspace_dir=workspace_dir,
+        )
+
+    if name == "wait_and_tail":
+        return wait_and_tail(
+            pid=int(inp["pid"]),
+            log_path=inp["log_path"],
+            max_wait_seconds=int(inp["max_wait_seconds"]),
+            tail_lines=int(inp.get("tail_lines", 200)),
+            workspace_dir=workspace_dir,
+        )
+
+    if name == "kill_process":
+        return kill_process(pid=int(inp["pid"]))
 
     if name == "read_file":
         return read_file(

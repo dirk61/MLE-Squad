@@ -319,6 +319,46 @@ Plus a "validate" mechanism: agent can probe submission format by sending text "
 
 ---
 
+## D17
+**Async-bash tools replace blind upfront timeouts: bounded observable waits + node-scoped process lifetime**
+
+**Date:** 2026-05-03
+
+**Decision:** A new tool trio — `bash_async`, `wait_and_tail`, `kill_process` — is added to [`src/tools.py`](src/tools.py) for any command expected to run >60s (training, hyperparameter searches). The existing `run_bash_with_truncation` is preserved unchanged for short synchronous work but is forbidden for training by both prompts and a trace inspector that flags violations.
+
+The pattern: (1) `bash_async(command, log_path)` spawns the command via `subprocess.Popen(..., start_new_session=True)`, returns the PID immediately, and registers the PID + pgid in a module-global `_ACTIVE_PROCESSES` dict; (2) `wait_and_tail(pid, log_path, max_wait_seconds, tail_lines=200)` blocks for **up to** `max_wait_seconds` OR until the process exits, returning the status, runtime, and the tail of the log; (3) `kill_process(pid)` SIGTERMs the pgid, polls 5s, then SIGKILLs the whole process group (so child workers — torchrun, DataLoader subprocesses — are reaped too).
+
+Six load-bearing constraints baked into the design:
+1. **`max_wait_seconds` is a CAP, not a kill.** Exceeding it returns control to the agent with the process still running. The agent then chooses: `wait_and_tail` again, `kill_process`, or move on.
+2. **Hard cap of 180s on `max_wait_seconds`** ([`WAIT_AND_TAIL_CAP_SECONDS`](src/tools.py)). Values above are silently clamped with a warning. Forces the agent to resurface every 3 min worst-case so the harness's wall-clock check ([`nodes.py:_wall_clock_exceeded`](src/nodes.py)), trace dump, and context-windowing keep firing per round.
+3. **Process state stays in module-global registry, not `AgentState`.** `_ACTIVE_PROCESSES` lives in `src/tools.py` and is inspected/reaped by `_sweep_active_processes` in `src/nodes.py`. Avoids cross-node state plumbing through LangGraph reducers.
+4. **No background process survives a node exit.** `_run_react_loop` is wrapped in `try/finally` that calls `_sweep_active_processes` on every exit path (end_turn, wall-clock break, recursion limit, exceptions). The agent is supposed to wait/kill on its own; the sweep is the safety net that logs `[node] Swept N straggler process(es)`.
+5. **Log path collisions are refused, not auto-suffixed.** `bash_async` returns a clear error if `log_path` exists and is non-empty. Trains the agent to pick unique names and surfaces the case where it forgot a prior launch.
+6. **`_auto_commit` skips files >1MB.** Training logs that grow into hundreds of megabytes won't bloat git history. `bash_history.log` (~30KB) is well under the cap.
+
+Prompts updated to teach the new pattern: [`prompts/nodes/model_engineer.md`](prompts/nodes/model_engineer.md) — "PROBE BEFORE YOU COMMIT" replaced with "LAUNCH ASYNC, OBSERVE, DECIDE"; Tools section updated; new guard rail "Never leave a `bash_async` process running at Sign-Off." [`prompts/nodes/architect.md`](prompts/nodes/architect.md) HARD STOP extended to forbid `bash_async`. [`prompts/protocols/sign_off.md`](prompts/protocols/sign_off.md) gets a new "step 0: process hygiene".
+
+Eval surface: [`src/trace_inspector.py`](src/trace_inspector.py) parses `logs/all_messages.jsonl` (append-only, works mid-run) and reports tool call counts, unpaired `bash_async` (smoking gun for misuse), and `run_bash_with_truncation` calls that look like training (`train`/`fit`/`optuna` in the command + `timeout > 600s` — these are calls that should have been async). Plus 12 pytest smoke tests in [`tests/test_tools_async.py`](tests/test_tools_async.py) covering real-subprocess behavior (no mocking — these catch real OS-level pgid/signal/reaping bugs).
+
+**Reasoning:**
+- The sync timeout pattern is a single forced bet made before any signal arrives. Two failure modes were biting in production: timeouts too short killed legitimate runs mid-epoch (work lost), timeouts too long burned a full 30-60 min on bad runs (NaN, divergence, immediate exception) before the agent could react. Both modes destroy ~10-30 min of compute apiece on a bad day.
+- The new pattern matches Claude Code's bash-background + BashOutput model: spawn, observe, decide. The wait becomes **bounded and observable** instead of all-or-nothing. The agent gets to look at actual loss curves before committing more compute.
+- Sequential dispatch was kept (not refactored to parallel) because the agent can interleave productive work — writing config files, reading EDA results, preparing alternative experiments — across separate ReAct rounds between successive `wait_and_tail` calls. This achieves the user's "do something while waiting" intent without the concurrency-bug surface area of `ThreadPoolExecutor` over the dispatch loop.
+- The 180s cap was chosen tight on purpose: with `MAX_CONTEXT_PAIRS=20` ([`nodes.py`](src/nodes.py)) and the per-round wall-clock check, a 3-min ceiling means the harness audits the agent's progress at least 20 times per node. Looser caps (10-15 min) make the wall-clock guard too lax — a runaway training could chew compute for 10 min before the safety net fires.
+- The "no process survives a node" invariant trades capability (training that spans multiple nodes) for tractability (no PID plumbing through LangGraph state, no Router-wipe edge cases, no orphan recovery on graph END). When/if Evaluator or a later node needs to babysit a long training, the agent can `bash_async` it locally rather than inheriting from a prior node. Simpler.
+- Trace-inspector-as-eval was the right minimum viable check. Mini-scenarios (fake training scripts + scripted agent runs) add ~200 lines of scaffolding for behavior the trace inspector already catches on real runs. Build mini-scenarios only if the inspector flags persistent misuse and we want a faster prompt-iteration loop.
+
+**To revisit if:**
+- The trace inspector surfaces persistent `unpaired_bash_async` patterns — agent is forgetting to wait/kill. Likely fix: stronger prompt language or auto-derived `kill_process` reminder in the tool result of `bash_async`.
+- Healthy long trainings (50+ min, no divergence) burn an outsize chunk of the 35-round recursion budget on observation alone. Likely fix: bump cap to 240s or 300s; or revisit a true parallel-dispatch refactor so the agent can interleave reads/writes WITHIN a single wait round.
+- Cross-node training becomes a real need (e.g., Evaluator needs Model_Engineer's training to keep running). Drops the "no process survives a node" invariant — would require either a Router-aware process registry or a workspace-file-based PID handoff.
+- The 1MB auto-commit cap turns out to be too aggressive (some legitimate JSONL traces grow large). Fix: bump cap, or move the size filter to a glob-pattern exclusion.
+- Anthropic API changes how parallel tool-call dispatch works in a way that makes the refactor cheap. Then `[wait_and_tail, read_file, write_file]` in one round becomes natural.
+
+**Stale spec note:** [`specs/spec_tool.md`](specs/spec_tool.md) still describes only the original 5-tool surface. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

@@ -27,6 +27,7 @@ Specific deltas (see `decisions.md` for full reasoning):
 - Architect HARD STOPs: no `.py` files, no training cmds, no commands >60s. — [D2]
 - CV-as-primary-signal + plateau detection at <0.3% relative delta over 2 runs. — [D4]
 - LLM tier: opus is `claude-opus-4-7` (not `4-6` as in spec_LLM.md); prompt caching, adaptive thinking, and `effort` levels all enabled. — [D16]
+- Tool surface adds `bash_async`/`wait_and_tail`/`kill_process` for any command >60s; sync `run_bash_with_truncation` is forbidden for training. Process state lives in a module-global registry, swept on every node exit. — [D17]
 
 ---
 

@@ -7,7 +7,9 @@ See spec_tool.md for authoritative parameter definitions and constraints.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+import time
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -15,21 +17,27 @@ MAX_OUTPUT_CHARS = 8_000
 TRUNCATION_KEEP = 2_000
 MAX_FILE_LINES = 10_000
 
+# Cap on wait_and_tail's max_wait_seconds. Forces the agent to resurface every
+# 3 minutes worst-case so the harness's wall-clock check, trace dump, and
+# context-windowing keep firing. The agent picks values <= this per call.
+WAIT_AND_TAIL_CAP_SECONDS = 180
+
 INTERACTIVE_BLOCKLIST = frozenset(
     {"vim", "vi", "nano", "emacs", "less", "more", "top", "htop"}
 )
 
+# Process registry for bash_async-spawned children. Keyed by PID; values carry
+# the process group ID (so we can SIGTERM/SIGKILL the whole tree), the log
+# path, the original command, and timing info. Module-global because the
+# LangGraph runtime is single-process; cleaned by _sweep_active_processes
+# in src/nodes.py at every Action Node exit.
+_ACTIVE_PROCESSES: dict[int, dict] = {}
+
 # ── 1. Execution Tools ──────────────────────────────────────────────────────
 
 
-def run_bash_with_truncation(
-    command: str,
-    timeout_seconds: int = 300,
-    *,
-    workspace_dir: str = ".",
-) -> str:
-    """Execute a shell command with output truncation and timeout."""
-    # Block interactive commands
+def _check_command_guards(command: str) -> str | None:
+    """Return an error string if the command is blocked, else None."""
     first_token = command.strip().split()[0] if command.strip() else ""
     if first_token in INTERACTIVE_BLOCKLIST:
         return (
@@ -41,17 +49,33 @@ def run_bash_with_truncation(
             "[ERROR: Interactive Python REPL is not allowed. "
             "Use 'uv run python script.py' instead.]"
         )
+    return None
 
-    # Strip venv/conda vars so workspace's own uv/venv isn't confused by the
-    # parent server process's environment.
+
+def _build_subprocess_env() -> dict:
+    """Strip venv/conda vars and apply /data1 cache defaults."""
     env = {
         k: v for k, v in os.environ.items()
         if k not in ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV")
     }
-    # Redirect uv/pip cache to /data1 if available to avoid filling /tmp or /
     if os.path.isdir("/data1"):
         env.setdefault("UV_CACHE_DIR", "/data1/six004/tmp/uv_cache")
         env.setdefault("TMPDIR", "/data1/six004/tmp")
+    return env
+
+
+def run_bash_with_truncation(
+    command: str,
+    timeout_seconds: int = 300,
+    *,
+    workspace_dir: str = ".",
+) -> str:
+    """Execute a shell command with output truncation and timeout."""
+    err = _check_command_guards(command)
+    if err is not None:
+        return err
+
+    env = _build_subprocess_env()
 
     try:
         result = subprocess.run(
@@ -128,6 +152,257 @@ def _persist_bash_output(workspace_dir: str, command: str, output: str, exit_cod
             f.write("\n")
     except Exception:
         pass  # non-critical
+
+
+# ── 1b. Async Execution Tools (background process + log tail + kill) ────────
+
+
+def bash_async(
+    command: str,
+    log_path: str,
+    *,
+    workspace_dir: str = ".",
+) -> str:
+    """Launch a shell command in a new process group; return PID immediately.
+
+    stdout+stderr redirect to log_path inside the workspace. Use for any
+    command expected to run >60s (training, hyperparameter searches). Always
+    pair with wait_and_tail to observe and kill_process to terminate.
+    """
+    err = _check_command_guards(command)
+    if err is not None:
+        return err
+
+    full_log_path = log_path if os.path.isabs(log_path) else os.path.join(workspace_dir, log_path)
+    if os.path.exists(full_log_path) and os.path.getsize(full_log_path) > 0:
+        return (
+            f"[ERROR: log_path '{log_path}' already exists and is non-empty. "
+            "Pick a unique path like logs/train_attempt2.log to keep replay history clean.]"
+        )
+
+    parent = os.path.dirname(full_log_path)
+    if parent:
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except Exception as e:
+            return f"[ERROR: Cannot create log directory: {e}]"
+
+    env = _build_subprocess_env()
+
+    try:
+        log_fh = open(full_log_path, "w")
+    except Exception as e:
+        return f"[ERROR: Cannot open log file for writing: {e}]"
+
+    try:
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            cwd=workspace_dir,
+            text=True,
+            env=env,
+            start_new_session=True,
+        )
+    except Exception as e:
+        log_fh.close()
+        return f"[ERROR: Failed to launch process: {e}]"
+
+    # Caller doesn't need the file handle — process owns it now.
+    log_fh.close()
+
+    try:
+        pgid = os.getpgid(proc.pid)
+    except ProcessLookupError:
+        # Process exited immediately — pgid lookup fails. Treat as exited.
+        pgid = proc.pid
+
+    _ACTIVE_PROCESSES[proc.pid] = {
+        "pgid": pgid,
+        "log_path": full_log_path,
+        "command": command,
+        "started_at": time.time(),
+        "workspace_dir": workspace_dir,
+    }
+
+    return (
+        f"Started PID {proc.pid} (pgid {pgid}); logging to {log_path}.\n"
+        f"Use wait_and_tail(pid={proc.pid}, log_path='{log_path}', max_wait_seconds=N) "
+        f"to observe (cap {WAIT_AND_TAIL_CAP_SECONDS}s). "
+        f"Use kill_process(pid={proc.pid}) to terminate on divergence."
+    )
+
+
+def _read_log_tail(full_log_path: str, tail_lines: int) -> str:
+    """Read the last N lines of a log file via shell tail, with truncation."""
+    if not os.path.isfile(full_log_path):
+        return f"[log file not found: {full_log_path}]"
+    try:
+        result = subprocess.run(
+            ["tail", "-n", str(tail_lines), full_log_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=10,
+        )
+        out = result.stdout or ""
+    except Exception as e:
+        return f"[tail failed: {e}]"
+    if len(out) > MAX_OUTPUT_CHARS:
+        out = (
+            out[:TRUNCATION_KEEP]
+            + "\n...[OUTPUT TRUNCATED]...\n"
+            + out[-TRUNCATION_KEEP:]
+        )
+    return out
+
+
+def _process_status(pid: int) -> tuple[str, int | None]:
+    """Probe a PID; return (status, exit_code).
+
+    status: 'running' | 'exited' | 'dead'
+    exit_code populated only on 'exited' (we reaped it).
+    """
+    # Try to reap if it's our child
+    try:
+        wpid, status = os.waitpid(pid, os.WNOHANG)
+    except ChildProcessError:
+        # Not our child or already reaped — fall through to liveness probe.
+        wpid = 0
+        status = 0
+
+    if wpid == pid:
+        # Reaped naturally
+        if os.WIFEXITED(status):
+            return "exited", os.WEXITSTATUS(status)
+        if os.WIFSIGNALED(status):
+            return "exited", -os.WTERMSIG(status)
+        return "exited", None
+
+    # Liveness probe via signal 0
+    try:
+        os.kill(pid, 0)
+        return "running", None
+    except ProcessLookupError:
+        return "dead", None
+    except PermissionError:
+        # Process exists but we can't signal it — treat as running.
+        return "running", None
+
+
+def wait_and_tail(
+    pid: int,
+    log_path: str,
+    max_wait_seconds: int,
+    tail_lines: int = 200,
+    *,
+    workspace_dir: str = ".",
+) -> str:
+    """Block up to max_wait_seconds OR until process exits, whichever first.
+
+    NOTE: max_wait_seconds is a CAP, not a kill — exceeding it leaves the
+    process running. The agent then decides: wait_and_tail again, kill_process,
+    or move on. Capped at WAIT_AND_TAIL_CAP_SECONDS (180s) for harness safety.
+    """
+    clamped = False
+    if max_wait_seconds > WAIT_AND_TAIL_CAP_SECONDS:
+        max_wait_seconds = WAIT_AND_TAIL_CAP_SECONDS
+        clamped = True
+    if max_wait_seconds < 0:
+        max_wait_seconds = 0
+
+    full_log_path = log_path if os.path.isabs(log_path) else os.path.join(workspace_dir, log_path)
+
+    started_at = _ACTIVE_PROCESSES.get(pid, {}).get("started_at")
+    deadline = time.time() + max_wait_seconds
+    poll_interval = 2.0
+    final_status = "running"
+    exit_code: int | None = None
+
+    while True:
+        status, code = _process_status(pid)
+        if status != "running":
+            final_status = status
+            exit_code = code
+            break
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        time.sleep(min(poll_interval, remaining))
+
+    # Drop from registry on terminal status
+    if final_status in ("exited", "dead"):
+        _ACTIVE_PROCESSES.pop(pid, None)
+
+    runtime_seconds = (time.time() - started_at) if started_at else None
+
+    header_parts = [f"Status: {final_status}"]
+    if final_status == "exited" and exit_code is not None:
+        header_parts[0] = f"Status: exited(code={exit_code})"
+    if runtime_seconds is not None:
+        header_parts.append(f"runtime={runtime_seconds:.1f}s")
+    if clamped:
+        header_parts.append(
+            f"[NOTE: max_wait_seconds clamped to {WAIT_AND_TAIL_CAP_SECONDS}s — "
+            "harness safety cap]"
+        )
+    header = " | ".join(header_parts)
+
+    tail = _read_log_tail(full_log_path, tail_lines)
+    return f"{header}\n--- last {tail_lines} lines of {log_path} ---\n{tail}"
+
+
+def kill_process(pid: int) -> str:
+    """SIGTERM the process group; SIGKILL after 5s grace. Return final tail."""
+    entry = _ACTIVE_PROCESSES.get(pid)
+    pgid = entry["pgid"] if entry else None
+    if pgid is None:
+        try:
+            pgid = os.getpgid(pid)
+        except ProcessLookupError:
+            return f"PID {pid} already exited."
+
+    log_path = entry["log_path"] if entry else None
+
+    # SIGTERM first
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        _ACTIVE_PROCESSES.pop(pid, None)
+        return f"PID {pid} already exited."
+    except PermissionError as e:
+        return f"[ERROR: Cannot signal pgid {pgid}: {e}]"
+
+    # Poll up to 5s for exit
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        status, _ = _process_status(pid)
+        if status != "running":
+            break
+        time.sleep(0.2)
+
+    # SIGKILL if still alive
+    status, _ = _process_status(pid)
+    if status == "running":
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # SIGKILL is asynchronous; poll briefly for the kernel to reap.
+        deadline2 = time.time() + 2.0
+        while time.time() < deadline2:
+            status, _ = _process_status(pid)
+            if status != "running":
+                break
+            time.sleep(0.05)
+
+    _ACTIVE_PROCESSES.pop(pid, None)
+
+    tail_text = ""
+    if log_path:
+        tail_text = "\n--- last 50 lines ---\n" + _read_log_tail(log_path, 50)
+    return f"Killed PID {pid} (pgid {pgid}).{tail_text}"
 
 
 # ── 2. File Operations ───────────────────────────────────────────────────────
@@ -319,6 +594,93 @@ TOOL_SCHEMAS: list[dict] = [
                 },
             },
             "required": ["command"],
+        },
+    },
+    {
+        "name": "bash_async",
+        "description": (
+            "Launch a shell command in a new process group; returns immediately "
+            "with the PID. Use for any command expected to run >60s (training, "
+            "hyperparameter searches, long preprocessing). stdout+stderr go to "
+            "log_path inside the workspace. log_path must be unique — pick "
+            "logs/<descriptive>.log. Always pair with wait_and_tail; terminate "
+            "with kill_process before this node yields."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute in the background.",
+                },
+                "log_path": {
+                    "type": "string",
+                    "description": (
+                        "Workspace-relative path for stdout+stderr. Must not "
+                        "already exist (non-empty). Convention: logs/train_*.log, "
+                        "logs/search_*.log, etc."
+                    ),
+                },
+            },
+            "required": ["command", "log_path"],
+        },
+    },
+    {
+        "name": "wait_and_tail",
+        "description": (
+            "Block up to max_wait_seconds OR until the process exits, whichever "
+            "first. Returns status (running/exited/dead), exit_code if exited, "
+            "runtime, and last N lines of the log. NOTE: max_wait_seconds is a "
+            "CAP not a kill — exceeding it leaves the process running. After "
+            "review, decide: kill_process, wait_and_tail again, or move on. "
+            "Hard-capped at 180s; values above are clamped."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pid": {
+                    "type": "integer",
+                    "description": "PID returned by bash_async.",
+                },
+                "log_path": {
+                    "type": "string",
+                    "description": "Same log_path passed to bash_async.",
+                },
+                "max_wait_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Maximum wait before returning even if process still "
+                        "running. Cap is 180s. Pick small (30-120s) for early "
+                        "calibration, larger once trends are clear."
+                    ),
+                },
+                "tail_lines": {
+                    "type": "integer",
+                    "description": "Number of trailing log lines to return (default 200).",
+                    "default": 200,
+                },
+            },
+            "required": ["pid", "log_path", "max_wait_seconds"],
+        },
+    },
+    {
+        "name": "kill_process",
+        "description": (
+            "Terminate a bash_async process group. SIGTERM first, SIGKILL after "
+            "5s if still alive. Use when wait_and_tail shows divergence (NaN "
+            "loss, no progress, wrong direction, immediate exception). Returns "
+            "the final 50 lines of the log so you see what was happening at "
+            "termination."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pid": {
+                    "type": "integer",
+                    "description": "PID returned by bash_async.",
+                },
+            },
+            "required": ["pid"],
         },
     },
     {

@@ -45,7 +45,7 @@ During data discovery, check compute resources, install core ML packages, and fi
 
 ## Guard rails
 - **HARD STOP: Do NOT write any `.py` files.** No `train.py`, `model.py`, `preprocess.py`, or any script. Your only output files are `ml_rules.md`, `ml_spec.md`, and `ml_todo.md`. If you find yourself writing pipeline code, you are doing Model_Engineer's or Data_Engineer's job — stop and hand off.
-- **HARD STOP: Do NOT run training commands.** Any bash command that trains a model, runs a Python script (other than quick one-liners for hardware/data checks), or sets `timeout > 60s` belongs in a downstream node, not here.
+- **HARD STOP: Do NOT run training commands.** Any bash command that trains a model, runs a Python script (other than quick one-liners for hardware/data checks), sets `timeout > 60s`, or uses `bash_async` belongs in a downstream node, not here.
 - Every `ml_todo.md` task requiring architectural context must cite the relevant `ml_spec.md` section
 - If uncertain about data structure, run `bash` to verify before committing to a design
 

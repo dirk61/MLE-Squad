@@ -16,9 +16,11 @@ import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import time
 
+from src import tools
 from src.llm import MODEL_MAP, call_llm
 
 log = logging.getLogger("mle_agent")
@@ -89,6 +91,51 @@ def _wall_clock_exceeded() -> bool:
     if not start:
         return False
     return (time.time() - float(start)) > GRAPH_WALL_CLOCK_TIMEOUT
+
+
+# ── Background Process Sweep ─────────────────────────────────────────────
+
+
+def _sweep_active_processes(node_name: str) -> None:
+    """Kill any background processes spawned by bash_async that didn't get cleaned up.
+
+    The "no background process survives a node exit" invariant — see decisions.md
+    D17. Called on every exit path of _run_react_loop (end_turn, wall-clock break,
+    recursion limit, exceptions). The agent is supposed to wait_and_tail or
+    kill_process on its own; this is the safety net.
+    """
+    if not tools._ACTIVE_PROCESSES:
+        return
+    leaked_pids = list(tools._ACTIVE_PROCESSES.keys())
+    for pid in leaked_pids:
+        entry = tools._ACTIVE_PROCESSES.get(pid, {})
+        pgid = entry.get("pgid", pid)
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            pass
+    # Brief grace period for SIGTERM to take effect
+    time.sleep(0.5)
+    for pid in leaked_pids:
+        entry = tools._ACTIVE_PROCESSES.get(pid, {})
+        pgid = entry.get("pgid", pid)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            pass
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            pass
+        tools._ACTIVE_PROCESSES.pop(pid, None)
+    log.warning(
+        "[%s] Swept %d straggler process(es) at node exit: %s",
+        node_name, len(leaked_pids), leaked_pids,
+    )
 
 
 # ── Trace Dump ───────────────────────────────────────────────────────────
@@ -259,92 +306,97 @@ def _run_react_loop(
     _init_wall_clock()
     log.info("[%s] Starting ReAct loop (tier=%s) [%.1f min elapsed]", node_name, tier, _elapsed_min())
 
-    while tool_rounds < recursion_limit:
-        # Safety net: abort if total graph time exceeds wall-clock timeout
-        if _wall_clock_exceeded():
-            handoff_message = (
-                f"[{node_name}] Wall-clock timeout ({GRAPH_WALL_CLOCK_TIMEOUT}s) exceeded. "
-                "Yielding to Router — must validate submission.csv and finalize immediately."
+    try:
+        while tool_rounds < recursion_limit:
+            # Safety net: abort if total graph time exceeds wall-clock timeout
+            if _wall_clock_exceeded():
+                handoff_message = (
+                    f"[{node_name}] Wall-clock timeout ({GRAPH_WALL_CLOCK_TIMEOUT}s) exceeded. "
+                    "Yielding to Router — must validate submission.csv and finalize immediately."
+                )
+                log.warning(handoff_message)
+                break
+
+            # Sliding context window: keep first message (handoff/instructions)
+            # + last MAX_CONTEXT_MESSAGES exchanges to prevent unbounded token growth.
+            # Old messages are already persisted in logs/all_messages.jsonl and
+            # logs/bash_history.log — the LLM can read_file() them if needed.
+            llm_messages = _windowed_messages(messages)
+
+            response = call_llm(
+                tier=tier,
+                system=system,
+                messages=llm_messages,
+                tools=TOOL_SCHEMAS,
             )
-            log.warning(handoff_message)
-            break
 
-        # Sliding context window: keep first message (handoff/instructions)
-        # + last MAX_CONTEXT_MESSAGES exchanges to prevent unbounded token growth.
-        # Old messages are already persisted in logs/all_messages.jsonl and
-        # logs/bash_history.log — the LLM can read_file() them if needed.
-        llm_messages = _windowed_messages(messages)
+            assistant_msg = _response_to_message(response)
+            messages.append(assistant_msg)
 
-        response = call_llm(
-            tier=tier,
-            system=system,
-            messages=llm_messages,
-            tools=TOOL_SCHEMAS,
-        )
+            if response.stop_reason == "tool_use":
+                tool_calls = [b for b in assistant_msg["content"] if b.get("type") == "tool_use"]
+                tool_names = [b["name"] for b in tool_calls]
+                # Show timeout for bash calls so it's visible in logs
+                bash_timeouts = [
+                    f"bash(timeout={b['input'].get('timeout_seconds', 300)}s)"
+                    for b in tool_calls if b["name"] == "run_bash_with_truncation"
+                ]
+                log.info(
+                    "[%s] Tool round %d/%d: %s %s [%.1f min]",
+                    node_name, tool_rounds + 1, recursion_limit,
+                    tool_names, bash_timeouts or "", _elapsed_min(),
+                )
+                # Log the command being run so it's visible externally
+                for b in tool_calls:
+                    if b["name"] == "run_bash_with_truncation":
+                        cmd = str(b["input"].get("command", "")).replace("\n", " ; ")[:200]
+                        log.info("[%s]   cmd: %s", node_name, cmd)
+                tool_result_msg, micro_tasks = dispatch_tool_calls(
+                    assistant_msg, workspace_dir, micro_tasks
+                )
+                # Log preview of tool results
+                for block in tool_result_msg.get("content", []):
+                    if isinstance(block, dict) and "content" in block:
+                        preview = str(block["content"])[:500].replace("\n", " | ")
+                        log.info("[%s]   -> %s", node_name, preview)
+                messages.append(tool_result_msg)
+                tool_rounds += 1
+                # Dump trace for mid-run diagnosis
+                _dump_trace(
+                    workspace_dir, node_name, tool_rounds,
+                    state.get("iteration_count", 0), messages,
+                )
+                continue
 
-        assistant_msg = _response_to_message(response)
-        messages.append(assistant_msg)
+            if response.stop_reason == "max_tokens":
+                # Truncated — ask the LLM to continue
+                messages.append({
+                    "role": "user",
+                    "content": "[System: Your response was truncated. Please continue.]",
+                })
+                continue
 
-        if response.stop_reason == "tool_use":
-            tool_calls = [b for b in assistant_msg["content"] if b.get("type") == "tool_use"]
-            tool_names = [b["name"] for b in tool_calls]
-            # Show timeout for bash calls so it's visible in logs
-            bash_timeouts = [
-                f"bash(timeout={b['input'].get('timeout_seconds', 300)}s)"
-                for b in tool_calls if b["name"] == "run_bash_with_truncation"
-            ]
+            # end_turn or other — LLM is done
+            handoff_message = _extract_text(response)
             log.info(
-                "[%s] Tool round %d/%d: %s %s [%.1f min]",
-                node_name, tool_rounds + 1, recursion_limit,
-                tool_names, bash_timeouts or "", _elapsed_min(),
+                "[%s] Done after %d tool rounds [%.1f min]. Handoff: %.300s",
+                node_name, tool_rounds, _elapsed_min(), handoff_message,
             )
-            # Log the command being run so it's visible externally
-            for b in tool_calls:
-                if b["name"] == "run_bash_with_truncation":
-                    cmd = str(b["input"].get("command", "")).replace("\n", " ; ")[:200]
-                    log.info("[%s]   cmd: %s", node_name, cmd)
-            tool_result_msg, micro_tasks = dispatch_tool_calls(
-                assistant_msg, workspace_dir, micro_tasks
-            )
-            # Log preview of tool results
-            for block in tool_result_msg.get("content", []):
-                if isinstance(block, dict) and "content" in block:
-                    preview = str(block["content"])[:500].replace("\n", " | ")
-                    log.info("[%s]   -> %s", node_name, preview)
-            messages.append(tool_result_msg)
-            tool_rounds += 1
-            # Dump trace for mid-run diagnosis
             _dump_trace(
                 workspace_dir, node_name, tool_rounds,
                 state.get("iteration_count", 0), messages,
             )
-            continue
-
-        if response.stop_reason == "max_tokens":
-            # Truncated — ask the LLM to continue
-            messages.append({
-                "role": "user",
-                "content": "[System: Your response was truncated. Please continue.]",
-            })
-            continue
-
-        # end_turn or other — LLM is done
-        handoff_message = _extract_text(response)
-        log.info(
-            "[%s] Done after %d tool rounds [%.1f min]. Handoff: %.300s",
-            node_name, tool_rounds, _elapsed_min(), handoff_message,
-        )
-        _dump_trace(
-            workspace_dir, node_name, tool_rounds,
-            state.get("iteration_count", 0), messages,
-        )
-        break
-    else:
-        # Recursion limit hit
-        handoff_message = (
-            f"[{node_name}] Recursion limit ({recursion_limit}) reached. "
-            "Yielding to Router with partial progress."
-        )
+            break
+        else:
+            # Recursion limit hit
+            handoff_message = (
+                f"[{node_name}] Recursion limit ({recursion_limit}) reached. "
+                "Yielding to Router with partial progress."
+            )
+    finally:
+        # Sweep any background processes the agent left running. Per D17,
+        # no bash_async-launched process is allowed to survive a node exit.
+        _sweep_active_processes(node_name)
 
     # Safety net: auto-commit any uncommitted work the LLM left behind.
     # The Sign-Off protocol asks the LLM to commit, but it doesn't always.
@@ -382,7 +434,30 @@ def _auto_commit(workspace_dir: str, node_name: str) -> None:
         ],
         cwd=workspace_dir, capture_output=True, check=False,
     )
-    # Check if anything got staged
+    # Unstage any large files so giant training logs don't bloat git history.
+    # 1 MB cap is well above bash_history.log (~30KB) but well below typical
+    # bash_async training logs.
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=workspace_dir, capture_output=True, text=True, check=False,
+    )
+    skipped_large: list[str] = []
+    for fname in staged.stdout.strip().splitlines():
+        full = os.path.join(workspace_dir, fname)
+        try:
+            size = os.path.getsize(full)
+        except OSError:
+            continue
+        if size > 1_000_000:
+            subprocess.run(
+                ["git", "reset", "HEAD", "--", fname],
+                cwd=workspace_dir, capture_output=True, check=False,
+            )
+            skipped_large.append(f"{fname} ({size//1024}KB)")
+    if skipped_large:
+        log.info("[%s] Skipped large files from auto-commit: %s", node_name, ", ".join(skipped_large))
+
+    # Check if anything is still staged after the size filter
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-only"],
         cwd=workspace_dir, capture_output=True, text=True, check=False,
