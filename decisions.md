@@ -528,6 +528,8 @@ D20 (single-holdout for image/audio CPU) and D22 (no further experimentation aft
 
 **Stale spec note:** D19's image/audio-only framing is now superseded by D23's modality-agnostic version. The text in [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header should reference D23 as the active principle.
 
+**Update (same day) — D23 tightening after jigsaw rerun (PR #457, score 0.9791) still picked TF-IDF + per-label LR.** The original D23 framing was too abstract — the architect's prior knowledge ("the canonical 2017 jigsaw winner used TF-IDF + LR/NB-SVM") overrode the principle. Added a "Stop-and-reconsider check" paragraph to [`prompts/nodes/architect.md`](prompts/nodes/architect.md) keyed on the **anti-pattern**: when reaching for hand-engineered features (TF-IDF for text, hand-crafted spectrogram stats for audio, hand-crafted image descriptors for vision) AS the primary representation outside the two carve-outs, stop. This is meta-discipline (negative example), not a hardcoded recipe — the agent still picks the specific pretrained model itself. Verified the GHA Docker image ships zero pretrained models pre-cached; the dogs-vs-cats success came from a runtime HuggingFace download (standard transfer learning, not infrastructure cheating).
+
 ---
 
 ## Deferred
