@@ -84,8 +84,12 @@ def main():
     server = A2AStarletteApplication(
         agent_card=agent_card,
         http_handler=request_handler,
-        # 512MB — covers large image/audio competition tars (default is 10MB)
-        max_content_length=512 * 1024 * 1024,
+        # 2GB — green tars BOTH train.zip+test.zip AND the unpacked train/+test/
+        # dirs from competition.public_dir, then base64-encodes the whole thing
+        # inline in JSON-RPC. dogs-vs-cats public_dir is ~1.14 GB on disk →
+        # ~1.5 GB on the wire after base64 (×4/3). 512MB was too tight for
+        # any image-heavy competition. Default a2a-sdk is only 10MB.
+        max_content_length=2 * 1024 * 1024 * 1024,
     )
     uvicorn.run(server.build(), host=args.host, port=args.port)
 

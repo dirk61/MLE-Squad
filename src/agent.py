@@ -61,7 +61,11 @@ class Agent:
             )
             return
 
-        staging_dir = tempfile.mkdtemp(prefix="mle_staging_")
+        # Stage to /data1 when available so the 150-850MB tar extract doesn't
+        # land on /tmp (often tmpfs in containers, or near-full on lab boxes).
+        # Mirrors the workspace-root logic in nodes.py:_DEFAULT_WORKSPACE.
+        staging_root = "/data1/six004/tmp" if os.path.isdir("/data1/six004/tmp") else None
+        staging_dir = tempfile.mkdtemp(prefix="mle_staging_", dir=staging_root)
         tar_members: list[str] = []
         tar_size_mb = len(tar_bytes) // (1 << 20)
         try:
