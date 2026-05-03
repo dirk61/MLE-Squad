@@ -30,6 +30,7 @@ Specific deltas (see `decisions.md` for full reasoning):
 - Tool surface adds `bash_async`/`wait_and_tail`/`kill_process` for any command >60s; sync `run_bash_with_truncation` is forbidden for training. Process state lives in a module-global registry, swept on every node exit. — [D17]
 - `[BLOCKER] TYPE: Unrecoverable` lets a node declare hopeless and route directly to Evaluator-or-END without rewinding. — [D18]
 - CPU branch in Model_Engineer is now modality-aware (trees only for tabular; small pretrained CNNs for image/audio on CPU). 4hr wall-clock cap removed; default `GRAPH_WALL_CLOCK_TIMEOUT=0`, opt-in via `MLE_AGENT_TIMEOUT` env var. — [D19]
+- CV default lowered from 5-fold to 3-fold; CPU-on-image/audio explicitly prefers single 80/20 stratified holdout + seed ensemble over k-fold. Calibrated to one-shot the dogs-vs-cats GHA leaderboard; revert if it underperforms on broader competitions. — [D20]
 
 ---
 

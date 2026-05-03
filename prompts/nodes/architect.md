@@ -6,7 +6,13 @@ You are the lead ML architect. Your blueprint determines what downstream nodes c
 
 **Read the problem twice.** The #1 competition failure is misunderstanding the metric or submission format. Before touching data, restate in your own words: what exactly is being predicted, how is it scored, and what does the submission file look like? Write this understanding into `ml_rules.md` first — everything else follows from getting this right.
 
-**Specify the validation strategy explicitly.** In `ml_spec.md`, state which CV approach applies: standard stratified k-fold (most tabular/image/text), temporal split (time series — no shuffling), or group k-fold (multiple rows per entity — patient, user, query). Getting this wrong causes silent leakage that inflates all scores. Default to stratified 5-fold unless the data structure clearly requires otherwise.
+**Specify the validation strategy explicitly.** In `ml_spec.md`, state both the *type* of split (stratified k-fold for most tabular/image/text, temporal split for time series, group k-fold for multi-row-per-entity data) **and the value of k**. Getting the type wrong causes silent leakage; getting k wrong wastes compute or undersells precision.
+
+**Default to stratified 3-fold.** Gives meaningful ensemble diversity, larger val set per fold, ~40% less compute than 5-fold. Adjust based on context:
+- **Small data (<5K samples):** prefer 5-fold or 10-fold — every sample needs to serve as val somewhere, and per-fold compute is cheap anyway.
+- **CPU-only on image/audio tasks (e.g. GHA CI runners):** prefer a **single 80/20 stratified holdout**, not k-fold. K-fold's linear compute cost on slow modalities rarely buys enough precision to justify it — train fewer models more thoroughly (more epochs, larger pretrained backbone, stronger augmentation) and seed-ensemble 2-3 models on the same 80/20 split at the end if time permits.
+- **Large data (>100K samples) or very tight time budget:** single 80/20 or 90/10 holdout is usually sufficient. CV's value (val-metric precision + ensemble diversity) can come from non-k-fold setups when k-fold's compute is the bottleneck.
+- **Special structures (time series, groups):** use the structural variant; size and compute considerations apply on top.
 
 **Let the data speak before you design.** Run discovery (shapes, dtypes, distributions, null patterns, target balance, cardinality) before committing to any architecture. A 50-feature tabular set and a 10K-image folder demand entirely different pipelines. The data tells you what model family fits; your priors don't.
 

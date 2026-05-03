@@ -408,6 +408,36 @@ Files: [`prompts/nodes/router.md`](prompts/nodes/router.md) (one new bullet in R
 
 ---
 
+## D20
+**CV strategy: 3-fold default + single 80/20 holdout for CPU-on-image/audio**
+
+**Date:** 2026-05-03
+
+**Decision:** Two coupled changes to validation strategy guidance, both in [`prompts/nodes/architect.md`](prompts/nodes/architect.md) with a corresponding reword in [`prompts/nodes/model_engineer.md`](prompts/nodes/model_engineer.md):
+
+1. **Default k changed from 5 to 3.** Architect now defaults to stratified 3-fold for the general case (was 5-fold). Rationale: ~40% less compute, larger val set per fold (33% vs 20% — tighter per-fold metric), 3 models is still meaningful ensemble diversity. Pre-D20 every competition paid the 5-fold tax even when 3-fold would have been adequate.
+
+2. **CPU-on-image/audio explicitly prefers a single 80/20 stratified holdout, not k-fold.** Rationale: k-fold's linear compute cost on slow modalities (CPU image/audio is 5-15× per-epoch over GPU) rarely buys enough precision to justify itself. Better to train fewer models more thoroughly — more epochs, larger pretrained backbone, stronger augmentation — and seed-ensemble 2-3 models on the same 80/20 split at the end if time permits. Each model trains on 80% of data instead of 67% (3-fold) or 80% (5-fold), which on a CPU-bottlenecked run matters more than the marginal CV-vs-holdout precision gap.
+
+Other branches preserved: small data (<5K) → 5/10-fold; large data (>100K) or tight time budget → single holdout; special structures (time series, groups) → structural variant. Model_Engineer prompt updated to defer to whatever ml_spec.md specifies (rather than defaulting to k-fold itself), with a permission slip to escalate k if hardware probe shows headroom.
+
+**Reasoning:**
+- Pre-D20 the prompt said "default to stratified 5-fold unless data structure clearly requires otherwise." That framing only allowed leakage-driven exceptions (time series, groups) — it had no exception for *compute*. The result was that every competition paid the 5-fold tax regardless of dataset size, hardware, or time budget.
+- 5-fold is the Kaggle convention but it's not universally optimal. CV serves three purposes: (a) val-metric precision, which scales with 1/N_val and saturates on large val sets; (b) avoiding overfitting to a single split during HP search; (c) ensemble diversity in the final submission. Of these, (a) saturates well below 5-fold on most competitions; (b) is mostly addressed by not running Optuna 100× on the same split; (c) can come from seed ensembles on a single 80/20 just as well as from k-fold.
+- For the immediate goal (one-shotting the dogs-vs-cats GHA leaderboard at 0.033 on CPU), 5-fold of efficientnet_b3 @ 288px would take 25-50 hours on CPU. Single 80/20 with a smaller backbone (efficientnet_b0 or mobilenetv3) at 224px and 8-10 epochs is in the 1.5-3 hour range — actually completable in CI. Today's local run already shows per-fold val_ll dipping to 0.023 with the refine schedule, so we have ~30% headroom over the 0.033 target even without ensemble.
+- Threshold of 5K for "small data" is rough but defensible: at 5K with 3-fold, val sets are 1.7K — still adequate for log-loss precision on most tasks. Below that, every sample matters more for training, and 5/10-fold buys real precision.
+
+**Stated as one-shot for leaderboard, not permanent.** Per discussion, this is calibrated to crush the dogs-vs-cats GHA leaderboard target. If we generalize to other competitions where 5-fold turns out to be the better default, revert. The change is small enough to roll back cleanly.
+
+**To revisit if:**
+- The architect mis-applies the rules (e.g. picks single-holdout on a 4K-sample dataset where 5-fold was the right call). Mitigation: tighten the small-data threshold or add concrete examples.
+- Model_Engineer ignores the architect's k and self-escalates to 5-fold without flagging. Mitigation: stronger language on the escalate-with-handoff requirement.
+- We win dogs-vs-cats at gold and want to reset CV defaults to 5-fold for general competitions where compute isn't the limiter.
+
+**Stale spec note:** none — `specs/spec_state.md` doesn't make claims about CV; the architect prompt is the authoritative spec for validation strategy. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.
