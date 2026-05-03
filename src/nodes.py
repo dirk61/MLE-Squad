@@ -360,19 +360,48 @@ def _run_react_loop(
                     node_name, tool_rounds + 1, recursion_limit,
                     tool_names, bash_timeouts or "", _elapsed_min(),
                 )
-                # Log the command being run so it's visible externally
+                # Log the command/operation being run so it's visible externally.
+                # Grep-friendly tags ([BG_LAUNCH], [BG_KILL], [SUBMISSION_WRITE])
+                # let GHA log monitoring find high-signal events fast.
                 for b in tool_calls:
-                    if b["name"] == "run_bash_with_truncation":
-                        cmd = str(b["input"].get("command", "")).replace("\n", " ; ")[:200]
+                    name = b["name"]
+                    inp = b["input"]
+                    if name == "run_bash_with_truncation":
+                        cmd = str(inp.get("command", "")).replace("\n", " ; ")[:200]
                         log.info("[%s]   cmd: %s", node_name, cmd)
+                    elif name == "bash_async":
+                        cmd = str(inp.get("command", "")).replace("\n", " ; ")[:300]
+                        log_path = inp.get("log_path", "")
+                        log.info("[%s] [BG_LAUNCH] log=%s cmd=%s", node_name, log_path, cmd)
+                    elif name == "kill_process":
+                        log.info("[%s] [BG_KILL] pid=%s", node_name, inp.get("pid"))
+                    elif name == "write_file":
+                        fp = str(inp.get("file_path", ""))
+                        if fp.endswith("submission.csv"):
+                            content = str(inp.get("content", ""))
+                            n_rows = max(0, content.count("\n") - 1)  # -1 for header
+                            log.info(
+                                "[%s] [SUBMISSION_WRITE] path=%s rows=%d bytes=%d",
+                                node_name, fp, n_rows, len(content),
+                            )
                 tool_result_msg, micro_tasks = dispatch_tool_calls(
                     assistant_msg, workspace_dir, micro_tasks
                 )
-                # Log preview of tool results
+                # Log preview of tool results, plus grep-friendly tags on
+                # background-process state transitions (exit, dead, killed).
                 for block in tool_result_msg.get("content", []):
-                    if isinstance(block, dict) and "content" in block:
-                        preview = str(block["content"])[:500].replace("\n", " | ")
-                        log.info("[%s]   -> %s", node_name, preview)
+                    if not isinstance(block, dict) or "content" not in block:
+                        continue
+                    text = str(block["content"])
+                    preview = text[:500].replace("\n", " | ")
+                    log.info("[%s]   -> %s", node_name, preview)
+                    first_line = text.split("\n", 1)[0][:300]
+                    if first_line.startswith("Status: exited"):
+                        log.info("[%s] [BG_DONE] %s", node_name, first_line)
+                    elif first_line.startswith("Status: dead"):
+                        log.info("[%s] [BG_DEAD] %s", node_name, first_line)
+                    elif first_line.startswith("Killed PID"):
+                        log.info("[%s] [BG_KILL_DONE] %s", node_name, first_line)
                 messages.append(tool_result_msg)
                 tool_rounds += 1
                 # Dump trace for mid-run diagnosis
@@ -392,8 +421,11 @@ def _run_react_loop(
 
             # end_turn or other — LLM is done
             handoff_message = _extract_text(response)
+            # 1500-char cap (was 300) so Architect's blueprint summary survives
+            # in the GHA log — that's where backbone/CV-strategy choices are
+            # visible without workspace access.
             log.info(
-                "[%s] Done after %d tool rounds [%.1f min]. Handoff: %.300s",
+                "[%s] Done after %d tool rounds [%.1f min]. Handoff: %.1500s",
                 node_name, tool_rounds, _elapsed_min(), handoff_message,
             )
             _dump_trace(
@@ -759,6 +791,11 @@ def router_brain_node(state: AgentState) -> dict:
     })
 
     log.info("[Router] -> %s (tier=%s, phase=%s) [%.1f min]", next_node, tier, new_phase, _elapsed_min())
+    # GHA-friendly milestone for monitoring iteration progress at a glance.
+    log.info(
+        "[GHA_MILESTONE] iter_end | iter=%d/%d | next=%s | tier=%s | phase=%s | elapsed_min=%.1f",
+        iteration_count, MAX_ITERATIONS, next_node, tier, new_phase, _elapsed_min(),
+    )
     return state_update
 
 

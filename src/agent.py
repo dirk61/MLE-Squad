@@ -142,6 +142,10 @@ class Agent:
             "Graph finished. workspace_dir=%s",
             final_state.get("workspace_dir", ""),
         )
+        log.info(
+            "[GHA_MILESTONE] graph_complete | iter=%d | elapsed=%s",
+            final_state.get("iteration_count", 0), resource_snapshot(),
+        )
 
         # ── Step 5: Read submission and submit ───────────────────────────
         workspace_dir = final_state.get("workspace_dir", "")
@@ -171,10 +175,15 @@ class Agent:
             return
 
         csv_bytes = Path(submission_path).read_bytes()
+        # Sanity-extract row count + first-row sample for the GHA log
+        try:
+            row_count = csv_bytes.decode("utf-8", errors="ignore").count("\n") - 1
+        except Exception:
+            row_count = -1
         from src.nodes import _elapsed_min
         log.info(
-            "Submission ready: %s (%d bytes) | Total pipeline time: %.1f min",
-            submission_path, len(csv_bytes), _elapsed_min(),
+            "[GHA_MILESTONE] submission_ready | path=%s | bytes=%d | rows=%d | total_min=%.1f",
+            submission_path, len(csv_bytes), row_count, _elapsed_min(),
         )
 
         # ── Step 6: Validate with green agent ────────────────────────────
@@ -204,6 +213,7 @@ class Agent:
             TaskState.working,
             new_agent_text_message("Submitting final submission..."),
         )
+        log.info("[GHA_MILESTONE] artifact_submit_start | bytes=%d", len(csv_bytes))
         await updater.add_artifact(
             parts=[
                 Part(
@@ -218,6 +228,7 @@ class Agent:
             ],
             name="submission",
         )
+        log.info("[GHA_MILESTONE] artifact_submit_done")
 
 
 # ── Helpers (module-level, not on the class) ─────────────────────────────
