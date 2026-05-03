@@ -28,6 +28,8 @@ Specific deltas (see `decisions.md` for full reasoning):
 - CV-as-primary-signal + plateau detection at <0.3% relative delta over 2 runs. — [D4]
 - LLM tier: opus is `claude-opus-4-7` (not `4-6` as in spec_LLM.md); prompt caching, adaptive thinking, and `effort` levels all enabled. — [D16]
 - Tool surface adds `bash_async`/`wait_and_tail`/`kill_process` for any command >60s; sync `run_bash_with_truncation` is forbidden for training. Process state lives in a module-global registry, swept on every node exit. — [D17]
+- `[BLOCKER] TYPE: Unrecoverable` lets a node declare hopeless and route directly to Evaluator-or-END without rewinding. — [D18]
+- CPU branch in Model_Engineer is now modality-aware (trees only for tabular; small pretrained CNNs for image/audio on CPU). 4hr wall-clock cap removed; default `GRAPH_WALL_CLOCK_TIMEOUT=0`, opt-in via `MLE_AGENT_TIMEOUT` env var. — [D19]
 
 ---
 

@@ -40,9 +40,12 @@ from src.tools import TOOL_SCHEMAS
 DEFAULT_RECURSION_LIMIT = 35
 
 # Wall-clock timeout for the entire graph run (seconds).
-# Safety net — prevents unbounded token burn on external platforms.
-# Ideal ~2hr, typical ~3hr, hard cap 4hr. Only triggers in edge cases.
-GRAPH_WALL_CLOCK_TIMEOUT = int(os.environ.get("MLE_AGENT_TIMEOUT", 14400))
+# Default 0 = no cap (D19). The 15-iteration Router cap, per-node recursion
+# limit, plateau detection, and the new [BLOCKER] TYPE: Unrecoverable path
+# already provide multiple termination mechanisms; the wall-clock cap was
+# blocking long-but-productive CPU runs. Set MLE_AGENT_TIMEOUT to a positive
+# integer to re-enable a hard cap (e.g. for a constrained CI envelope).
+GRAPH_WALL_CLOCK_TIMEOUT = int(os.environ.get("MLE_AGENT_TIMEOUT", 0))
 
 # Maximum Router transitions before forcing END.
 # Happy path = ~5 cycles. 15 allows 2-3 rewinds within a ~1 hr budget.
@@ -87,7 +90,12 @@ def _elapsed_min() -> float:
 
 
 def _wall_clock_exceeded() -> bool:
-    """Check if the total graph run has exceeded GRAPH_WALL_CLOCK_TIMEOUT."""
+    """Check if the total graph run has exceeded GRAPH_WALL_CLOCK_TIMEOUT.
+
+    Returns False when the cap is disabled (<=0), which is the default per D19.
+    """
+    if GRAPH_WALL_CLOCK_TIMEOUT <= 0:
+        return False
     start = os.environ.get(_GRAPH_START_KEY)
     if not start:
         return False

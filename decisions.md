@@ -382,6 +382,32 @@ Files: [`prompts/nodes/router.md`](prompts/nodes/router.md) (one new bullet in R
 
 ---
 
+## D19
+**Modality-aware CPU strategy + remove the 4hr wall-clock cap to enable competitive CPU runs**
+
+**Date:** 2026-05-03
+
+**Decision:** Two coupled changes that unblock GHA CPU-only competition runs:
+
+1. **CPU branch in [`prompts/nodes/model_engineer.md`](prompts/nodes/model_engineer.md) is now modality-aware.** The previous instruction "If CPU-only: prefer tree-based models (XGBoost, LightGBM) and install standard torch if needed for non-tabular tasks" is replaced. New guidance: trees are the right primary choice only for tabular tasks on CPU; for image/audio/text tasks the right strategy is a *smaller* pretrained model (e.g. `efficientnet_b0`, `mobilenetv3_large_100`, `resnet18` for vision), reduced input resolution, and possibly fewer folds — but the model *family* stays the same. The architect prompt ([`prompts/nodes/architect.md`](prompts/nodes/architect.md)) gets a parallel "Match the architecture to the hardware" beat in its planning section so the strategy is fixed at blueprint time rather than pushed downstream.
+
+2. **The 4hr global wall-clock cap is removed by default.** [`src/nodes.py:GRAPH_WALL_CLOCK_TIMEOUT`](src/nodes.py) now defaults to `0` (disabled). [`_wall_clock_exceeded()`](src/nodes.py) returns `False` when the value is `<=0`. The env var `MLE_AGENT_TIMEOUT` is preserved as an opt-in for environments that need a hard cap. Architect's "Budget time deliberately" beat updated to reflect that runtime is now bounded by the 15-iteration Router cap, plateau detection, and `[BLOCKER] TYPE: Unrecoverable` (D18), not by a hard ceiling.
+
+**Reasoning:**
+- The leaderboard already has a 0.033 entry on dogs-vs-cats GHA CPU-only; that's existence proof a CNN-based pipeline is viable in that envelope. Today's local run is producing per-fold val log-loss in the 0.023-0.027 range with a refined efficientnet_b3 schedule, confirming we have ~30-50% margin to the leaderboard target. The architect's framework can compete; it was the *prompt* (not the framework) telling Model_Engineer to fall back to trees on CPU that would have prevented us from achieving this on GHA.
+- Trees on raw pixels are not a degraded approach to image classification — they're a structurally incapable approach. The previous prompt language conflated "smaller hardware" with "different problem class," which is the wrong invariance. The right invariance is "data modality determines model class; hardware determines model size within the class."
+- The 4hr cap was set in D3 to match the AgentBeats platform envelope, but in practice it was a soft signal (current node yields with "must finalize" handoff; doesn't actually kill running training). With the new tools (D17 `bash_async`/`wait_and_tail`/`kill_process`, D18 `Unrecoverable`) and the existing 15-iteration Router cap, we have multiple termination paths that don't require a wall-clock backstop. CPU-only image training legitimately needs >4hr for 5-fold CV; capping it was the only thing preventing us from trying.
+- Keeping the env var hook (`MLE_AGENT_TIMEOUT`) preserves the option to re-impose a cap in environments where a strict envelope matters (e.g. if a future runner truly cuts the process at N hours), without requiring code changes.
+
+**To revisit if:**
+- Removing the cap surfaces pathological runs that don't terminate via plateau/iter-cap/Unrecoverable. Mitigation: re-enable a generous default (e.g. 6-8hr) or strengthen plateau detection so it survives exploration episodes (Q1 from the 2026-05-03 conversation).
+- The modality-aware CPU branch turns out to be too vague — agents pick CNN backbones too large for the actual CI runner. Mitigation: tighten with concrete per-modality recommendations (e.g. "for image-classification on CPU at <16GB RAM, default to mobilenetv3_small @ 160px unless dataset has >100K images").
+- A future GHA runner gets GPUs (would let us push back on the smaller-backbone constraint and aim for higher accuracy).
+
+**Stale spec note:** [`specs/spec_state.md`](specs/spec_state.md) has no specific wall-clock claim; [`prompts/dynamic/ml_rules_template.md`](prompts/dynamic/ml_rules_template.md) "Time budget" slot still references "~2 hour ideal, 3 hour typical, 4 hour hard cap" as an example — left as illustration since the architect rewrites this per competition based on actual hardware. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.
