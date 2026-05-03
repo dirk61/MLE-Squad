@@ -438,6 +438,34 @@ Other branches preserved: small data (<5K) → 5/10-fold; large data (>100K) or 
 
 ---
 
+## D21
+**Upgrade Model_Engineer to Opus 4.7 (was Sonnet 4.6) — fewer rounds, smarter scripts**
+
+**Date:** 2026-05-03
+
+**Decision:** Router now routes Model_Engineer to `claude-opus-4-7` for both first-entry (no-blocker phase advance) and rewind paths (MetricFloor / Other blockers). Data_Engineer stays on Sonnet 4.6, Architect re-entry stays on Sonnet (per D6), Evaluator stays on Haiku 4.5. Updated [`prompts/nodes/router.md`](prompts/nodes/router.md) Routing logic block + Model tier reference. The opus tier in [`src/llm.py`](src/llm.py) already applies `thinking={"type": "adaptive", "display": "summarized"}` + `output_config={"effort": "high"}` (per D16), so the routing change automatically gives ME adaptive thinking + effort=high.
+
+Also fixed a stale model ID in the Router prompt: tier reference said `claude-opus-4-6` but `MODEL_MAP` shifted to `claude-opus-4-7` in D16. The reverse map silently mapped `claude-opus-4-6` → `sonnet` fallback. The stale string wasn't exercised by routing (Architect rewinds use Sonnet per D6, no Router rule emitted Opus before this change), so behavior was unaffected — but documentation was wrong.
+
+**Reasoning:**
+- Today's local dogs-vs-cats run is using Sonnet for ME and produced multiple real script bugs that cost rounds: epoch-1 ValLL=nan from missing probability clipping (despite ml_rules.md explicitly warning about it), FileNotFoundError on missing checkpoint in train_all_folds.py, several iterations of TTA experiments that hurt scores. Each bug → ~1-2 rounds to diagnose + edit_file_chunk fix. Estimated 5-10 wasted rounds per Model_Engineer entry.
+- On the upcoming GHA CPU push each round costs minutes-to-hours of training time (training is the bottleneck, not LLM inference). Fewer-but-smarter rounds dominate. Opus 4.7's better script-writing and code-judgment should reduce these script bugs meaningfully — even saving 2-3 rounds per ME entry is hours of CI compute saved.
+- Cost delta is trivial (~$3 per dogs-vs-cats run; user said cost is not a concern for the leaderboard push). With prompt caching, per-call cost is dominated by output + thinking tokens, where Opus's 1.7× multiplier doesn't compound much across cached prefixes.
+- Adaptive thinking with effort=high pairs well with ME's role: complex training scripts, plateau-vs-keep-going decisions, debugging mid-training divergence. These are exactly what Opus 4.7's "best for coding/agentic" sweet spot targets.
+- Considered upgrading to effort=xhigh (the recommended Opus 4.7 default for coding per Anthropic docs), but xhigh requires `max_tokens >= 64000` per the SDK's non-streaming guard, which means refactoring `call_llm` to use streaming. That's deferred — D16's effort=high is solid for non-streaming and the gain from xhigh is incremental.
+
+**Smoke-tested:** real `call_llm(tier="opus", ...)` invocation accepted by Anthropic API with adaptive thinking + effort=high — no 400 from any per-tier param. Round-trip routing verified: Router emits `claude-opus-4-7` → reverse map → tier="opus" → call_llm applies opus settings.
+
+**To revisit if:**
+- Opus's longer per-call latency (no caching benefit on first call) makes ME's wall-clock noticeably slower in practice. Mitigation: switch back to Sonnet, or refactor for streaming + xhigh.
+- The script-bug rate on Opus is similar to Sonnet (regression is just human-equivalent). Mitigation: revert one prompt change.
+- Per-run cost balloons unexpectedly (e.g. Opus thinking tokens explode on hard problems). Mitigation: reduce effort to medium, or cap with `max_tokens` lower.
+- We win the leaderboard at gold and want to revert to Sonnet to save cost on broader competitions. Mitigation: revert.
+
+**Stale spec note:** [`specs/spec_LLM.md`](specs/spec_LLM.md) §1 still lists ME on `claude-sonnet-4-6` — the spec hasn't been updated since D16. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

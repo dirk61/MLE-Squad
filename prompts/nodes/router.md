@@ -30,17 +30,17 @@ Architecture → DataEngineering → ModelEngineering → Evaluation → END
 
 ## Routing logic:
 - `[BLOCKER] TYPE: ImportError` or `ShapeError` → `Data_Engineer`, `claude-sonnet-4-6`
-- `[BLOCKER] TYPE: MetricFloor` → `Model_Engineer`, `claude-sonnet-4-6`, set `rewind_reason`
+- `[BLOCKER] TYPE: MetricFloor` → `Model_Engineer`, `claude-opus-4-7`, set `rewind_reason`
 - `[BLOCKER] TYPE: SubmissionFail` → `Evaluator`, `claude-sonnet-4-6`
-- `[BLOCKER] TYPE: Other` → route to the node that owns the failing phase (`Data_Engineer` or `Model_Engineer`), `claude-sonnet-4-6`, set `rewind_reason`. Only route to `System_Architect` (with `claude-sonnet-4-6` — the spec already exists, just needs adjustment) if the blocker explicitly says the architecture/spec is wrong.
+- `[BLOCKER] TYPE: Other` → route to the node that owns the failing phase: `Data_Engineer` (`claude-sonnet-4-6`) or `Model_Engineer` (`claude-opus-4-7`), set `rewind_reason`. Only route to `System_Architect` (with `claude-sonnet-4-6` — the spec already exists, just needs adjustment) if the blocker explicitly says the architecture/spec is wrong.
 - `[BLOCKER] TYPE: Unrecoverable` → if a `submission.csv` already exists at the workspace root, route to `Evaluator` (`claude-haiku-4-5-20251001`) for one final validation pass; otherwise route directly to `END`. Do **not** rewind — the issuing node has declared further retries hopeless, and continuing would only burn iteration budget on a doomed path.
-- No blocker, phase complete → advance to next phase, `claude-sonnet-4-6` (except Evaluation which uses `claude-haiku-4-5-20251001`)
+- No blocker, phase complete → advance to next phase. Tier per node: `Data_Engineer` → `claude-sonnet-4-6`; `Model_Engineer` → `claude-opus-4-7`; `Evaluator` → `claude-haiku-4-5-20251001`.
 - Evaluation complete, no blocker → `END`
 
 ## Model tier reference:
-- `claude-opus-4-6` — architecture decisions, complex pivots
-- `claude-sonnet-4-6` — execution: data engineering, model engineering
-- `claude-haiku-4-5-20251001` — your own tier, and also use for `Evaluator` (format validation only)
+- `claude-opus-4-7` — first-entry architecture, model engineering (complex code, long-horizon training decisions)
+- `claude-sonnet-4-6` — data engineering, architecture re-entry/pivots (the spec already exists, just needs adjustment)
+- `claude-haiku-4-5-20251001` — your own tier; also `Evaluator` (format validation only)
 
 ## Hard rails:
 - Never write code
