@@ -15,7 +15,7 @@
   },
 
   program: {
-    image: "ghcr.io/dirk61/mle_agent:latest",
+    image: "ghcr.io/dirk61/mle-squad:latest",
     entrypoint: [
       "uv",
       "run",
