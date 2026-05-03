@@ -28,10 +28,15 @@ Embed this block verbatim into any Action Node prompt that participates in the s
    Current Objective: <what you were working on>
    Current State: <DONE | IN_PROGRESS | BLOCKED>
    Blockers:
-     [BLOCKER] TYPE: <ImportError|ShapeError|MetricFloor|SubmissionFail|Other>
+     [BLOCKER] TYPE: <ImportError|ShapeError|MetricFloor|SubmissionFail|Unrecoverable|Other>
      MSG: <single line>
      TRACE: <last relevant traceback line or metric value>
    (Omit the Blockers section entirely if there are no blockers.)
+   Use Unrecoverable only when retries cannot help — e.g. the same failure
+   has repeated across multiple architectures or hyperparameter sets, the
+   data is fundamentally unusable, or the wall-clock budget is too tight
+   to attempt another approach. Router will not rewind on Unrecoverable;
+   it will route directly to Evaluator (or END if no submission.csv exists).
    Next Steps: <exact file path or command the next node should start with>
 
    Key Findings: (include this section — it helps the next node orient quickly)

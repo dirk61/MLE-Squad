@@ -359,6 +359,29 @@ Eval surface: [`src/trace_inspector.py`](src/trace_inspector.py) parses `logs/al
 
 ---
 
+## D18
+**Add `[BLOCKER] TYPE: Unrecoverable` so a node can declare hopeless and skip rewind retries**
+
+**Date:** 2026-05-03
+
+**Decision:** Add a new blocker type `Unrecoverable` to the Sign-Off enum and a corresponding routing rule in the Router prompt. When a node writes `[BLOCKER] TYPE: Unrecoverable` to ml_progress.txt, the Router routes to `Evaluator` (Haiku) if `submission.csv` exists at the workspace root, else directly to `END`. **No rewind on Unrecoverable** — the issuing node is asserting that further retries cannot help.
+
+Files: [`prompts/nodes/router.md`](prompts/nodes/router.md) (one new bullet in Routing logic), [`prompts/protocols/sign_off.md`](prompts/protocols/sign_off.md) (extend the BLOCKER TYPE union + brief usage note).
+
+**Reasoning:**
+- Pre-D18, all five blocker types (ImportError, ShapeError, MetricFloor, SubmissionFail, Other) routed to retry/rewind. The only path to END for a hopeless run was the `MAX_ITERATIONS=15` global cap firing at the Router level — purely reactive, and it burned every remaining iteration on doomed retries before triggering.
+- The "things went RIGHT, stop early" path already works: `model_engineer.md`'s plateau-detection (`<0.3% relative delta over 2 attempts → generate submission.csv and hand off`) → Router → Evaluator → END. That pattern is metric-agnostic and load-bearing per D8 (no medal-target loop-chasing).
+- The corresponding "things went WRONG, give up" path was missing. Without `Unrecoverable`, a Model_Engineer that has tried three architectures and seen the same NaN failure in each can only re-emit a `MetricFloor` blocker, which the Router rewinds back to it, and the cycle repeats until iter 15. That wastes 5-7 iterations and ~30 minutes of wall-clock on a doomed path.
+- Adding a single new blocker type costs minimal prompt complexity. The prompt instruction to use it sparingly ("only when retries cannot help") is the bar — same shape as other blocker descriptions.
+- Importantly, this **does not re-introduce the medal-chasing loop D8 banned**. `Unrecoverable` is keyed on observed-failure patterns (repeated NaN, unusable data, budget overrun), not on hitting/missing a score threshold. The decision to give up is metric-agnostic.
+
+**To revisit if:**
+- Agents start over-using `Unrecoverable` to escape work they could in fact complete (would manifest as runs that end early with sub-baseline submissions). Mitigation would be tightening the prompt language: e.g., "only after 3 failed attempts of substantively different approaches."
+- Agents under-use it (most hopeless runs still exhaust iter cap). Mitigation: add a Router-side heuristic that promotes any blocker to `Unrecoverable` after N consecutive rewinds against the same node.
+- Sub-2-fold runs misuse it as an early exit before having a baseline. Mitigation: tighten the Router rule to require `submission.csv` exists for Unrecoverable to route anywhere except a synthetic-submission fallback path.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

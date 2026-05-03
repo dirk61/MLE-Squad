@@ -33,6 +33,7 @@ Architecture → DataEngineering → ModelEngineering → Evaluation → END
 - `[BLOCKER] TYPE: MetricFloor` → `Model_Engineer`, `claude-sonnet-4-6`, set `rewind_reason`
 - `[BLOCKER] TYPE: SubmissionFail` → `Evaluator`, `claude-sonnet-4-6`
 - `[BLOCKER] TYPE: Other` → route to the node that owns the failing phase (`Data_Engineer` or `Model_Engineer`), `claude-sonnet-4-6`, set `rewind_reason`. Only route to `System_Architect` (with `claude-sonnet-4-6` — the spec already exists, just needs adjustment) if the blocker explicitly says the architecture/spec is wrong.
+- `[BLOCKER] TYPE: Unrecoverable` → if a `submission.csv` already exists at the workspace root, route to `Evaluator` (`claude-haiku-4-5-20251001`) for one final validation pass; otherwise route directly to `END`. Do **not** rewind — the issuing node has declared further retries hopeless, and continuing would only burn iteration budget on a doomed path.
 - No blocker, phase complete → advance to next phase, `claude-sonnet-4-6` (except Evaluation which uses `claude-haiku-4-5-20251001`)
 - Evaluation complete, no blocker → `END`
 
