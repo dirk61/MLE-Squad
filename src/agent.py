@@ -90,6 +90,17 @@ class Agent:
         # bytes + 1.1GB extracted + 1.1GB workspace copy = 3GB+ RAM pressure
         # in CI). gc.collect() is a one-time ~200ms cost worth the headroom.
         del tar_bytes
+        # Also clear the base64-encoded bytes inside the original message's
+        # FilePart. The a2a framework keeps the message parameter alive for
+        # the entire Agent.run() lifetime (= the whole pipeline), and the
+        # base64 string is ~1.4× the tar bytes (so ~1.4GB for dogs-vs-cats).
+        # On a 7-8GB GHA runner this is the difference between OOM and
+        # successful graph invocation.
+        for _part in message.parts:
+            if isinstance(_part.root, FilePart):
+                _file_data = _part.root.file
+                if isinstance(_file_data, FileWithBytes):
+                    _file_data.bytes = ""
         gc.collect()
         log.info("[PHASE] tar_extracted | %s", resource_snapshot())
 
