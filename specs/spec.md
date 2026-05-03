@@ -26,6 +26,7 @@ Specific deltas (see `decisions.md` for full reasoning):
 - A2A: 512MB max content, sample_submission fallback, partial-output capture. — [D10]
 - Architect HARD STOPs: no `.py` files, no training cmds, no commands >60s. — [D2]
 - CV-as-primary-signal + plateau detection at <0.3% relative delta over 2 runs. — [D4]
+- LLM tier: opus is `claude-opus-4-7` (not `4-6` as in spec_LLM.md); prompt caching, adaptive thinking, and `effort` levels all enabled. — [D16]
 
 ---
 

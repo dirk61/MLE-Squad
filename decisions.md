@@ -288,6 +288,37 @@ Plus a "validate" mechanism: agent can probe submission format by sending text "
 
 ---
 
+## D16
+**Cost-cutting pass: prompt caching + adaptive thinking + Opus 4.7 + effort levels**
+
+**Date:** 2026-05-03
+
+**Decision:** [`src/llm.py`](src/llm.py) now opts into Anthropic prompt caching, enables adaptive thinking on the opus and sonnet tiers, bumps the opus model to `claude-opus-4-7`, and sets explicit `effort` levels per tier:
+1. **Caching layout** — two `cache_control: {"type": "ephemeral"}` breakpoints per request: one on the system block (which by Anthropic's prefix-match rule covers tools+system as a single static prefix, since render order is `tools → system → messages`), and one on the last content block of the most-recently-appended message (caches the growing ReAct conversation). Two breakpoints, well under the 4-per-request limit.
+2. **Model bump** — opus tier upgraded from `claude-opus-4-6` to `claude-opus-4-7`. Drops `budget_tokens` (removed on 4.7 — would 400). No sampling params were ever set, so no removal needed there.
+3. **Adaptive thinking** — opus and sonnet tiers run with `thinking: {"type": "adaptive"}`. Opus also sets `display: "summarized"` because Opus 4.7's silent default is `omitted` (empty thinking text in responses) and we want the JSONL trace to retain reasoning visibility. Haiku 4.5 supports neither thinking nor effort and is called plain.
+4. **Effort levels** — opus → `high` (intelligence-sensitive minimum per the migration guide; `xhigh`/`max` would require streaming + ≥64K max_tokens, a deeper refactor we deferred). Sonnet → `medium` (sweet spot for high-volume agentic execution; explicitly set because Sonnet 4.6's silent default is `high`).
+5. **max_tokens** — opus bumped to 20000 for adaptive-thinking headroom (capped under the SDK's ~21,333 non-streaming guard, derived from a 10-min wall-clock estimate). Sonnet/haiku unchanged.
+6. **Round-trip preservation** — [`src/nodes.py:_response_to_message`](src/nodes.py) now passes through `thinking` (with signature) and `redacted_thinking` blocks alongside `text` and `tool_use`. Anthropic verifies thinking-block signatures across turns; dropping them would break the round-trip and would also waste the cached prefix every iteration.
+
+**Reasoning:**
+- The trigger was the April 13 console snapshot: $173.94 of input on a single day, $0.00 cached read. Anthropic prompt caching is opt-in (no auto-cache); flagged from car_bench_agent sister sub-group on 2026-05-02 (commit `036a812`).
+- Caching is the dominant savings lever in this codebase: every ReAct turn within an Action Node sends the full prior message history, but the tools+system prefix is identical across every turn within a node's lifetime. Live smoke test confirmed the wiring: one warmup write of ~9,600 tokens, then steady ~9,600-token cache reads on every subsequent call. At 0.1× input price for cache reads vs 1× uncached, that is ~9× savings on the static prefix per turn. With the typical Action Node running 10–35 ReAct rounds, the lifetime savings compound.
+- Adaptive thinking replaces fixed `budget_tokens` and is required on Opus 4.7 anyway (`{"type": "enabled", "budget_tokens": N}` returns 400). On both Opus 4.7 and Sonnet 4.6 it produces equal-or-better quality than manual thinking on Anthropic's internal evals while letting the model self-throttle thinking depth per task — a good fit for an agent that mixes complex planning (architect) with routine bash (execution).
+- Opus 4.7 over 4.6: same input/output pricing tier, more capable on long-horizon agentic work and knowledge tasks per Anthropic's launch notes. The migration risk is low because we were not using any of the removed parameters (`temperature`, `top_p`, `top_k`, `budget_tokens`).
+- Effort levels chosen pragmatically: opus runs the architect role (few invocations per competition, high-stakes) — `high` balances quality and SDK-safe non-streaming. Sonnet runs the execution roles (many invocations) — `medium` keeps per-call cost reasonable across the lifetime of a competition. Haiku 4.5 errors on effort/thinking (per Anthropic docs) and stays plain.
+
+**To revisit if:**
+- Per-call costs still come in higher than expected post-caching (sweep `effort` down to `low`/`medium` on opus and `low` on sonnet; or add a third breakpoint mid-message-history if the 20-block lookback window starts missing).
+- An Action Node's responses start truncating mid-thought on opus (raise `max_tokens` and switch to streaming via `messages.stream()` + `.get_final_message()`).
+- We want to push opus to `effort: "xhigh"` (the recommended Opus 4.7 default for coding/agentic per Anthropic) — that requires `max_tokens ≥ 64000` per the migration guide, which means refactoring `call_llm` to stream.
+- `cache_creation_input_tokens` stays high across iterations (a silent invalidator has snuck into `assemble_system_prompt` or `TOOL_SCHEMAS` — datetime, UUID, non-deterministic JSON serialization, etc. — see [`shared/prompt-caching.md`](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) audit table).
+- Anthropic introduces a Haiku tier that supports adaptive thinking (then enable on the Router for free intelligence at no cost lift).
+
+**Stale spec note:** [`specs/spec_LLM.md`](specs/spec_LLM.md) §1 still lists opus as `claude-opus-4-6` and says nothing about caching, adaptive thinking, or effort. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header to reflect.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

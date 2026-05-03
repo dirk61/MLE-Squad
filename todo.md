@@ -10,7 +10,7 @@
 
 > Add iteration-mode tasks here. Free-form bullets, no fixed schema. Move to Archived after a stable batch lands. If a task surfaces a load-bearing decision, capture in `decisions.md` *before* committing.
 
-- [ ] **CACHING IS NOT ENABLED — flagged 2026-05-02 from sister sub-group car_bench_agent.** [`src/llm.py`](src/llm.py) calls `client.messages.create(...)` with no `cache_control` annotations on system / messages / tools. Anthropic prompt caching is **opt-in** — there is no auto-cache. Apr 13 Anthropic-console snapshot: $173.94 of input on a single day, $0.00 cached read → ~90% of that input could plausibly have been cached at 0.1× price = ~$155 saved on that day alone if the architect/action-node prompts are largely static across the ReAct loop. Worth measuring before implementing: each ReAct turn of an Action Node sends the full prior message history; the static portion (system prompt + tool defs) is identical every turn within a node's loop. Even a 2-breakpoint setup (last tool + system) would likely cut cost 2-5× per node. Reference implementation in [`../car_bench_agent/src/agent.py:_apply_anthropic_prompt_caching`](../car_bench_agent/src/agent.py) (uses LiteLLM, not Anthropic SDK directly, but the cache_control format is identical — drop into `call_llm` kwargs the same way). Cross-cutting writeup: [`../submit-gotchas.md`](../submit-gotchas.md) §"Anthropic prompt caching is opt-in".
+*(empty — see [`decisions.md`](decisions.md) D16 for the most recent landed batch: prompt caching + Opus 4.7 + adaptive thinking + effort levels.)*
 
 ---
 

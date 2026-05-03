@@ -186,7 +186,13 @@ def _windowed_messages(messages: list[dict]) -> list[dict]:
 
 
 def _response_to_message(response) -> dict:
-    """Convert an Anthropic Message response to a state message dict."""
+    """Convert an Anthropic Message response to a state message dict.
+
+    Preserves thinking and redacted_thinking blocks alongside text and
+    tool_use. With adaptive thinking on (opus/sonnet tiers), the API
+    verifies thinking-block signatures across turns — dropping them
+    would break the round-trip and waste the cached prefix.
+    """
     content: list[dict] = []
     for block in response.content:
         if block.type == "text":
@@ -198,6 +204,14 @@ def _response_to_message(response) -> dict:
                 "name": block.name,
                 "input": block.input,
             })
+        elif block.type == "thinking":
+            content.append({
+                "type": "thinking",
+                "thinking": block.thinking,
+                "signature": block.signature,
+            })
+        elif block.type == "redacted_thinking":
+            content.append({"type": "redacted_thinking", "data": block.data})
     return {"role": "assistant", "content": content}
 
 
