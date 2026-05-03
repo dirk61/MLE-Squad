@@ -20,3 +20,6 @@ kaggle.txt
 
 # Strategy / research notes (local only)
 competition_strategy.md
+
+# Claude Code harness transient state (e.g., scheduled_tasks.lock)
+.claude/*.lock
