@@ -32,6 +32,7 @@ Specific deltas (see `decisions.md` for full reasoning):
 - CPU branch in Model_Engineer is now modality-aware (trees only for tabular; small pretrained CNNs for image/audio on CPU). 4hr wall-clock cap removed; default `GRAPH_WALL_CLOCK_TIMEOUT=0`, opt-in via `MLE_AGENT_TIMEOUT` env var. — [D19]
 - CV default lowered from 5-fold to 3-fold; CPU-on-image/audio explicitly prefers single 80/20 stratified holdout + seed ensemble over k-fold. Calibrated to one-shot the dogs-vs-cats GHA leaderboard; revert if it underperforms on broader competitions. — [D20]
 - Model_Engineer upgraded to Opus 4.7 (was Sonnet 4.6); inherits adaptive thinking + effort=high from the opus tier in src/llm.py. Stale `claude-opus-4-6` reference in Router tier table also fixed. — [D21]
+- Time-constrained envs: Architect plans single end-to-end pipeline ("No further experimentation after primary training"), Model_Engineer respects the experimentation budget (recover from broken, lock in suboptimal). `MAX_ITERATIONS` is env-tunable via `MLE_AGENT_MAX_ITERATIONS` (default 15; GHA scenario sets 6). — [D22]
 
 ---
 

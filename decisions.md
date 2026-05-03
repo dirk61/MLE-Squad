@@ -466,6 +466,37 @@ Also fixed a stale model ID in the Router prompt: tier reference said `claude-op
 
 ---
 
+## D22
+**Time-constrained envs: one-pipeline discipline + env-tunable iteration cap**
+
+**Date:** 2026-05-03
+
+**Decision:** Three coupled changes that fit competition runs into time-bounded envs (GHA CI's 6hr cap is the immediate target) without compromising final score:
+
+1. **Architect plans a single end-to-end pipeline on time-constrained envs.** New "On time-constrained envs (e.g. GHA CI ≤6hr)" beat in [`prompts/nodes/architect.md`](prompts/nodes/architect.md): one model, one full training run via the D20 single 80/20 holdout, 8-12 epochs with cosine LR + warmup. **No multiple backbones, no k-fold ensemble experiments, no "initial pass then refine pass" two-stage training.** Architect notes the constraint in `ml_spec.md` as the literal string **"No further experimentation after primary training — lock in the submission and hand off."**
+
+2. **Model_Engineer respects the experimentation budget.** New "Respect the architect's experimentation budget" beat in [`prompts/nodes/model_engineer.md`](prompts/nodes/model_engineer.md). Spells out what's still allowed (pick concrete hyperparameters within architect's range, smoke-probe, recover from crashes/NaN/OOM) vs forbidden (second backbone, schedule sweep, TTA exploration, refine pass). Defines the test: *was the previous training **broken** or just **suboptimal**?* Broken → recover. Suboptimal → lock it in, hand off.
+
+3. **`MAX_ITERATIONS` is env-tunable.** [`src/nodes.py:46`](src/nodes.py) now reads `MLE_AGENT_MAX_ITERATIONS` from env, default 15. GHA scenario should set 6 to keep a 5-6hr CPU run inside the 6hr Actions cap. Lab/local runs keep the default 15.
+
+**Reasoning:**
+- Today's local dogs-vs-cats run took 109+ min to reach iter 4 on 2× RTX 4090. Translated to GHA CPU at 5-15× per-epoch slowdown, the same workflow would be 12-37 hours — an order of magnitude over the 6hr Actions cap.
+- The single-fold val_ll from iter 2's refine pass alone was 0.0272 (already gold; leaderboard target 0.033). The 5-fold ensemble combined OOF was 0.0273 — i.e. the ensemble added <0.0001 over fold 0 alone, within noise. Conclusion: **on this competition the ensemble-diversity gain is negligible vs the well-tuned-single-training gain.** Most of the leaderboard performance comes from the schedule (10 epochs + cosine + warmup + small label_smooth + DataParallel), not from the k-fold ensemble or second-backbone experiments.
+- This means the ~5hr difference between "iter 1+2+3" and "iter 1 only with refine schedule baked in" is buying ~10-25% test-score improvement at 5x compute. On GHA where the alternative is "fail to complete in 6hr," that tradeoff is bad. The right strategy is "consolidate iter 1+2 into one well-planned training with the refine schedule from the start."
+- The "no further experimentation" language is a **hard cap on running a second full training to compare**, NOT a cap on thinking. ME still picks concrete hyperparameters, augmentations, batch size; still does smoke probes; still recovers from crashes. What it doesn't do is launch a second 1+ hour training to compare alternatives.
+- `MAX_ITERATIONS` env-tunable mirrors the existing `MLE_AGENT_TIMEOUT` pattern from D19. Default stays at 15 (no behavior change for lab/GPU runs); GHA scenarios opt in to a tighter cap.
+- The 6-iteration GHA cap leaves room for: 1 architect, 1 DE, 1 ME (primary training), 1 evaluator, plus 2 reserved for blocker-recovery rewinds. Should be enough headroom even with a script bug or two.
+
+**To revisit if:**
+- The "no further experimentation" rule is too aggressive — agent stops too early on competitions where multi-backbone ensembling actually delivers material gains. Mitigation: soften to "prefer locking in over experimenting once the planned pipeline produces a working submission, but you may pursue follow-ups if you have specific evidence of >10% improvement potential."
+- Architect mis-applies the time-constraint rule on envs that aren't actually constrained (e.g. local CPU run with no time budget). Mitigation: tie the rule explicitly to a `Time budget` field in `ml_rules.md` rather than blanket "CPU = constrained."
+- 6 iterations is too few for GHA (e.g., consistent script bugs eat the budget). Mitigation: bump to 8 or 10 in scenario.toml.
+- The architect/ME contract creates friction (ME wants to experiment, architect's plan is too narrow). Mitigation: revisit D1 contract — currently ME can rewind to Architect via BLOCKER for spec revision, which is the escape valve.
+
+**Stale spec note:** none. This is a new constraint layer on top of D19/D20; no prior spec language conflicts. Update [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

@@ -48,8 +48,10 @@ DEFAULT_RECURSION_LIMIT = 35
 GRAPH_WALL_CLOCK_TIMEOUT = int(os.environ.get("MLE_AGENT_TIMEOUT", 0))
 
 # Maximum Router transitions before forcing END.
-# Happy path = ~5 cycles. 15 allows 2-3 rewinds within a ~1 hr budget.
-MAX_ITERATIONS = 15
+# Default 15 — happy path is ~5 cycles, 15 allows 2-3 rewinds within a typical
+# 2-3hr GPU budget. Override via MLE_AGENT_MAX_ITERATIONS for tight envs:
+# GHA CI scenarios should set 6 to keep a 5-6hr CPU run inside the 6hr cap (D22).
+MAX_ITERATIONS = int(os.environ.get("MLE_AGENT_MAX_ITERATIONS", 15))
 
 # Where competition workspaces are created
 # Use /data1 if available (3TB+ disk for torch CUDA packages, models, etc.)
