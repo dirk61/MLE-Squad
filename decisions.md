@@ -497,6 +497,39 @@ Also fixed a stale model ID in the Router prompt: tier reference said `claude-op
 
 ---
 
+## D23
+**Generalize D19's image/audio anti-trees rule into a modality-agnostic "pretrained features as primary representation" principle**
+
+**Date:** 2026-05-03
+
+**Decision:** Replace the "Match the architecture to the hardware" beat in [`prompts/nodes/architect.md`](prompts/nodes/architect.md) with a stronger, more general principle: **for any classification/regression/embedding-based task on a modality where strong pretrained foundation models exist (vision, text, audio), use frozen pretrained features as the PRIMARY representation, not hand-engineered features (TF-IDF, hand-crafted spectrograms, etc.).** Two explicit carve-outs: (1) tabular has no strong pretrained foundation → trees stay primary; (2) image-to-image / sequence-to-sequence / generation tasks may use specialized architectures.
+
+The compute axis (GPU vs CPU, time budget) adjusts the *size* of the pretrained backbone and the *depth* of CV, not *whether* to use pretrained features at all.
+
+**Reasoning:**
+- Triggered by the jigsaw-toxic GHA run (PR #454, scored 0.97975). Architect picked "TF-IDF (word 1-2gram + char_wb 3-5gram) → 6 per-label LogReg" — a defensible classical-ML baseline that explicitly used NO pretrained model for the text representation. Result: regression vs the prior 0.98113 entry (because that older run had ensemble averaging that the new D20 single-holdout discipline removed) AND no medal (median = 0.98079, bronze = 0.98639).
+- Compare dogs-vs-cats GHA run (PR #452, scored 0.02125 — gold by 45% margin). Architect picked "frozen pretrained CNN feature extraction → logistic regression head with hflip TTA." The classifier shape is identical to jigsaw's; the difference is the feature source: pretrained vs hand-engineered.
+- D19's text branch was too soft. The exact pre-D23 phrasing — "If CPU-only on an image/audio task, do NOT default to tree-based models … Plan instead for a lightweight pretrained backbone (e.g. … small transformer for text)" — scoped the explicit prohibition to image/audio and made the text suggestion parenthetical inside an image-focused paragraph. TF-IDF + LogReg also isn't *technically* tree-based, so the prohibition didn't apply at all by the letter of the prompt. The architect read "use TF-IDF + LR for text on CPU" as defensible.
+- D23 fixes this by reframing the principle modality-agnostically. The architect's choice on dogs-vs-cats — frozen CNN features + linear classifier — wasn't a hardware adaptation, it was the same principle that should apply across modalities: "the strongest available pretrained representation, regardless of hardware." That principle generalizes; the recipe doesn't.
+- **No hardcoded recipes.** D23 doesn't say "use sentence-transformers/all-MiniLM-L6-v2 for jigsaw-toxic." It says "use whatever the strongest pretrained foundation model is for this modality." The architect picks the specific model, the same way it emergently picked timm's mobilenetv3 for dogs-vs-cats without being told to.
+- **No regression on already-gold tasks.** Walked through all 5 currently-leaderboarded competitions:
+  - dogs-vs-cats (gold, image-classification): D23 reinforces what already worked. No change.
+  - denoising-dirty-documents (gold, image-to-image): D23's carve-out (2) explicitly exempts this — agent free to pick specialized denoising methods.
+  - spaceship-titanic (gold, tabular): D23's carve-out (1) preserves trees. No change.
+  - aerial-cactus (image-classification, in flight): D23 reinforces what dogs-vs-cats did. Should hold or improve.
+  - jigsaw-toxic (no medal, text-classification): D23 is the targeted fix. Architect should now pick pretrained text embeddings → per-label LR. Expected score: 0.984+.
+
+D20 (single-holdout for image/audio CPU) and D22 (no further experimentation after primary training) intentionally NOT touched — they're correct for image and the jigsaw regression's primary cause was the feature representation, not the CV depth (~0.005-0.010 lift available from pretrained features vs ~0.001-0.002 from CV ensembling).
+
+**To revisit if:**
+- Architect mis-applies the carve-outs. E.g., classifies a clean image classification task as "image-to-image" and uses a denoising autoencoder. Mitigation: tighten the carve-out language with concrete examples ("denoising, super-resolution, segmentation as raster output, image generation").
+- A modality emerges where the principle is wrong (e.g., a task where TF-IDF genuinely beats sentence embeddings — this happens for very-short-text or domain-specific corpora). Mitigation: add to the existing carve-outs.
+- The "frozen forward pass on CPU + light classifier" recipe stops being the right CPU pattern (e.g., for very small datasets where fine-tuning a small model end-to-end fits and helps). Mitigation: revisit the CPU-specific guidance.
+
+**Stale spec note:** D19's image/audio-only framing is now superseded by D23's modality-agnostic version. The text in [`specs/spec.md`](specs/spec.md) "Current state vs original spec" delta header should reference D23 as the active principle.
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.
