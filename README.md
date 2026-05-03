@@ -122,18 +122,19 @@ This architecture currently validates itself through top-tier performance on the
 ---
 
 ## 🏆 Leaderboard Update: mle-bench on AgentBeats
-Date: April 14, 2026 | Status: Benchmarking Ongoing 🟢
+Date: May 3, 2026 | Status: Benchmarking Ongoing 🟢
 
 
 MLE-Squad currently leads the [MLE-bench leaderboard](https://agentbeats.dev/agentbeater/mle-bench) of the [AgentX-AgentBeats Competition](https://rdi.berkeley.edu/agentx-agentbeats) hosted by [Berkeley RDI](https://rdi.berkeley.edu/).
 
  The leaderboard utilizes OpenAI's [MLE-bench](https://github.com/openai/mle-bench)—a comprehensive evaluation consisting of 75 Kaggle competitions to test AI agents on real world MLE tasks. 
 
-### 🥇 Current Standing: Rank #1 on 4/6 Featured Leaderboards
-On the AgentBeats leaderboard featuring 6 competitions, we currently hold the **top spot** in 4 of the them:
+### 🥇 Current Standing: Rank #1 on 5/6 Featured Leaderboards
+On the AgentBeats leaderboard featuring 6 competitions, we currently hold the **top spot** in 5 of them:
 * Spaceship Titanic (Tabular)
 * Denoising Dirty Documents (Image-to-Image)
 * Aerial Cactus Identification (Image Classification)
+* Dogs vs. Cats Redux (Image Classification)
 * Jigsaw Toxic Comment Classification (Text Classification)
 
 ---
@@ -144,7 +145,8 @@ On the AgentBeats leaderboard featuring 6 competitions, we currently hold the **
 |---|---|---|---|---|
 | Spaceship Titanic | #1 | 0.832 | 0.821 | Gold 🥇 |
 | Denoising Dirty Documents<sup>3</sup> | #1 | 0.013 | 0.018 | Gold 🥇 |
-| Aerial Cactus Identification | #1 | 0.99995 | 1.000 | Above median |
+| Dogs vs. Cats Redux<sup>3</sup> | #1 | 0.021 | 0.039 | Gold 🥇 |
+| Aerial Cactus Identification | #1 | 0.9999 | 1.000 | Above median |
 | Jigsaw Toxic Comment Classification | #1 | 0.981 | 0.987 | Above median |
 | MLSP 2013 Bird Classification | N/A<sup>4</sup> | 0.875 | 0.935 | Bronze 🥉 |
 
@@ -189,11 +191,12 @@ As we continue to iterate, our roadmap focuses on two primary objectives:
             │  ┌──────────┐  ┌──────────┐  ┌───────────┐
             │  │   Data   │  │  Model   │  │ Evaluator │
             │  │Engineer  │  │Engineer  │  │  Haiku    │
-            │  │ Sonnet   │  │ Sonnet   │  │           │
+            │  │ Sonnet   │  │  Opus    │  │           │
             │  ├──────────┤  ├──────────┤  ├───────────┤
             │  │ bash     │  │ bash     │  │ bash      │
-            │  │ read_file│  │ read_file│  │ read_file │
-            │  │write_file│  │write_file│  │write_file │
+            │  │ bash_*   │  │ bash_*   │  │ read_file │
+            │  │ read_file│  │ read_file│  │write_file │
+            │  │write_file│  │write_file│  │           │
             │  │edit_chunk│  │edit_chunk│  │           │
             │  │task_queue│  │task_queue│  │           │
             │  └────┬─────┘  └────┬─────┘  └─────┬─────┘
@@ -211,7 +214,7 @@ As we continue to iterate, our roadmap focuses on two primary objectives:
 | `System_Architect` | Opus | Reads competition description, runs data discovery, writes blueprint (`ml_rules.md`, `ml_spec.md`, `ml_todo.md`) |
 | `Router_Brain` | Haiku | Reads progress, decides next node, assigns model tier, triggers rewinds on typed blockers |
 | `Data_Engineer` | Sonnet | Exploratory data analysis, feature engineering, preprocessing pipeline, produces validated arrays |
-| `Model_Engineer` | Sonnet | Model Selection, model training, hyperparameter tuning, generates `submission.csv` |
+| `Model_Engineer` | Opus | Model selection, model training, hyperparameter tuning, generates `submission.csv` |
 | `Evaluator` | Haiku | Submission format validation, metric sanity check, gates final submit |
 
 ### Toolset
@@ -220,7 +223,10 @@ All agents (except Router) can run bash commands, read/write files, and edit cod
 
 | Tool | What it does |
 |---|---|
-| `*bash` | Run commands: train scripts, install packages, check data shapes. Output limited to 8K chars. LLM-defined timeout window. |
+| `bash` (sync) | Run short commands: install packages, check data shapes, quick scripts. Output limited to 8K chars. LLM-defined timeout window. |
+| `bash_async` | Launch a long-running command (training, hyperparameter search) in a new process group; returns the PID immediately. Pair with `wait_and_tail` and terminate with `kill_process`. |
+| `wait_and_tail` | Block up to N seconds OR until the launched process exits, whichever first. Returns status (running/exited/dead), exit code, and the tail of the log file. Lets the agent observe and decide mid-training rather than committing to a blind upfront timeout. |
+| `kill_process` | SIGTERM the process group, SIGKILL after a 5-second grace. For aborting on observed divergence (NaN, no progress, runaway). |
 | `read_file` | Read code, logs, memory files. Not used on raw data files. |
 | `write_file` | Create new Python scripts, configs, tracking files. |
 | `edit_file_chunk` | Find-and-replace edits in existing code. |
@@ -272,10 +278,12 @@ mle_squad/
 │   ├── nodes.py              # Node implementations: ReAct loop, Architect, Router
 │   ├── state.py              # AgentState TypedDict (LangGraph shared state)
 │   ├── llm.py                # Tiered LLM dispatch (Opus / Sonnet / Haiku)
-│   ├── tools.py              # Tool implementations + Anthropic schemas
+│   ├── tools.py              # Tool implementations + Anthropic schemas (incl. async-bash trio)
 │   ├── tool_node.py          # Universal tool dispatcher
 │   ├── prompts.py            # Prompt loader + assembly (static + protocols + ml_rules)
 │   ├── medal_thresholds.py   # Pre-computed medal scores for all 82 competitions
+│   ├── observability.py      # resource_snapshot() — process/system telemetry for live-log triage
+│   ├── trace_inspector.py    # Parse logs/all_messages.jsonl; flag tool-usage misuse patterns
 │   ├── executor.py           # A2A task lifecycle
 │   └── server.py             # A2A HTTP server entry point
 ├── prompts/
@@ -287,10 +295,13 @@ mle_squad/
 │   │   └── evaluator.md
 │   ├── protocols/
 │   │   ├── wake_up.md        # pwd · progress · todo · git log
-│   │   └── sign_off.md       # update todo · write progress · commit · handoff
+│   │   └── sign_off.md       # process hygiene · update todo · write progress · commit · handoff
 │   └── dynamic/
 │       └── ml_rules_template.md  # Architect fills this per competition
-├── specs/                    # Design specifications (cold storage)
+├── specs/                    # Design specifications (0→1 baseline; cold storage)
+├── decisions.md              # Iteration-mode decision log (D1+); cross-references commits
+├── runs/                     # Per-competition run records (setup, what worked, what didn't)
+├── tests/                    # Pytest smoke tests for tools + trace inspector
 ├── Dockerfile
 ├── amber-manifest.json5      # AgentBeats deployment config
 └── pyproject.toml
