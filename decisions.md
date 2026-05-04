@@ -532,6 +532,33 @@ D20 (single-holdout for image/audio CPU) and D22 (no further experimentation aft
 
 ---
 
+## D24
+**Strip vestigial Kaggle/medal language from the public source surface (rename, scrub dead code, drop cosmetic tag)**
+
+**Date:** 2026-05-03 (commit pending — captured pre-sign-off per CLAUDE.md §9)
+
+**Decision:** Surface-level cleanup of Kaggle/medal references in the source tree, scoped strictly to *what's actually unused or misleading*. No history rewriting, no scrubbing of decisions/runs/README results.
+
+Concrete changes:
+1. **Rename `src/medal_thresholds.py` → `src/competition_ids.py`.** The original file held a `dict[str, dict]` of 82 competitions with `gold/silver/bronze/median/is_lower_better` columns. Per D8 the agent prompts contain *zero* threshold references — the only runtime use is dict-key membership testing for competition ID detection in `src/agent.py` (`if parts[0] in MEDAL_THRESHOLDS:`). The score columns are dead data dressed as live data. Replaced with `KNOWN_COMPETITION_IDS: frozenset[str]` of the same 82 IDs, score columns removed. Module docstring explicitly notes D8 + D24 lineage so the renaming isn't mysterious.
+2. **Delete `get_medal_thresholds()` function.** Defined in `src/medal_thresholds.py:104` and imported by `src/nodes.py:28`, but **never called** anywhere in `src/` or `tests/`. Pure dead code from the original D8 deletion that left the function lying around.
+3. **Remove dead import.** `src/nodes.py:28` `from src.medal_thresholds import get_medal_thresholds` deleted (function was unused).
+4. **Update `src/state.py:51` comment.** Was: "Used to look up medal score thresholds from the static table." Now describes actual usage (workspace dir naming + logging + ID-set match).
+5. **`src/server.py:65` agent-card tags.** Was `["mle", "kaggle", "submission"]`. Dropped `"kaggle"` — the agent doesn't talk to Kaggle's API; "MLE-bench is Kaggle-derived" is true at the dataset-source level but the tag was descriptive of dataset origin, not agent capability. Kept `"mle"` and `"submission"`.
+6. **Doc references updated** in `CLAUDE.md` §4, `README.md` repo structure, `specs/spec_state.md` `competition_id` line, `operations/sync.md` (frozen-files table + D-entry preamble).
+
+**Reasoning:**
+- The cleanup wasn't asked for by a bug or competition pressure — it's hygiene before deadline. The user flagged that vestigial gold/silver/bronze references in the source could be misread as "the agent has access to leaderboard scores," even though D8 already proved the prompt contract is clean. The misread surface (file name, column names, dead function, unused import, cosmetic tag) carried zero load-bearing weight in the runtime code path.
+- Scope discipline: this is a **surface scrub, not a history rewrite**. `decisions.md` D8/D9/D11/D23 narrative referencing medal-targeting is preserved — that's the *evidence* that the agent was deliberately stripped of medal awareness, deleting it would erase the proof. `README.md` results table keeps Gold/Silver/Bronze designations because that's how MLE-Bench *outcomes* are reported (standard leaderboard convention), not how the agent is *prompted*. `runs/*.md` post-mortems keep "gold medal achieved" outcome language for the same reason.
+- The renamed `src/competition_ids.py` is now self-explanatory: it's an ID allowlist for tar-archive identification. A reader inspecting source no longer has to dig three layers deep to discover that the score columns are vestigial.
+- All tests still pass (15/15: `tests/test_tools_async.py` + `tests/test_trace_inspector.py`); `py_compile` clean across all touched files.
+
+**To revisit if:**
+- A future feature legitimately needs the medal thresholds at runtime (e.g., a *display-only* metric showing where the current val score sits relative to gold, with the score itself never reaching the LLM context). Re-extract the table from `mlebench/competitions/*/leaderboard.csv`; restore as a sibling file, never re-merge into `competition_ids.py`.
+- A competition outside the original 82 needs to be added — same flow (extract ID, drop into the frozenset, no scores).
+
+---
+
 ## Deferred
 
 Milestone-gated divergences and future work. Each entry: gating condition + proposed action when the gate opens. Distinct from `## Active (iteration)` items in `todo.md` — deferrals are blocked on a specific event (deadline, fleet access, milestone), not just "later." `/sync` references this register; findings matching a `[Fn]` entry get the `**Deferred:**` marker.

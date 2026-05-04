@@ -264,12 +264,12 @@ def _detect_competition_id(
     from extracted tar, (3) instructions text.
     Returns empty string if no match — graceful degradation.
     """
-    from src.medal_thresholds import MEDAL_THRESHOLDS
+    from src.competition_ids import KNOWN_COMPETITION_IDS
 
     # Strategy 1: tar directory prefix
     for member in tar_members:
         parts = member.split("/")
-        if len(parts) > 1 and parts[0] in MEDAL_THRESHOLDS:
+        if len(parts) > 1 and parts[0] in KNOWN_COMPETITION_IDS:
             return parts[0]
 
     # Strategy 2: check description.md from extracted tar
@@ -278,7 +278,7 @@ def _detect_competition_id(
         if os.path.isfile(desc_path):
             try:
                 desc_text = Path(desc_path).read_text(errors="ignore").lower()
-                for comp_id in sorted(MEDAL_THRESHOLDS, key=len, reverse=True):
+                for comp_id in sorted(KNOWN_COMPETITION_IDS, key=len, reverse=True):
                     if comp_id in desc_text:
                         return comp_id
             except Exception:
@@ -287,7 +287,7 @@ def _detect_competition_id(
     # Strategy 3: match known IDs in instructions (longest first to avoid
     # partial matches like "ai" matching before "ai4code")
     instructions_lower = instructions.lower()
-    for comp_id in sorted(MEDAL_THRESHOLDS, key=len, reverse=True):
+    for comp_id in sorted(KNOWN_COMPETITION_IDS, key=len, reverse=True):
         if comp_id in instructions_lower:
             return comp_id
 

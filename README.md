@@ -281,7 +281,7 @@ mle_squad/
 │   ├── tools.py              # Tool implementations + Anthropic schemas (incl. async-bash trio)
 │   ├── tool_node.py          # Universal tool dispatcher
 │   ├── prompts.py            # Prompt loader + assembly (static + protocols + ml_rules)
-│   ├── medal_thresholds.py   # Pre-computed medal scores for all 82 competitions
+│   ├── competition_ids.py    # Static set of 82 known MLE-bench competition IDs (used to identify the tar archive)
 │   ├── observability.py      # resource_snapshot() — process/system telemetry for live-log triage
 │   ├── trace_inspector.py    # Parse logs/all_messages.jsonl; flag tool-usage misuse patterns
 │   ├── executor.py           # A2A task lifecycle

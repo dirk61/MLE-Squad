@@ -62,7 +62,7 @@ def main():
         id="mle-bench-submission",
         name="MLE Bench Submission",
         description="Generates a submission CSV for MLE-Bench competitions",
-        tags=["mle", "kaggle", "submission"],
+        tags=["mle", "submission"],
         examples=[]
     )
 

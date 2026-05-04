@@ -43,7 +43,7 @@ The dictionary passed between nodes contains:
 * `iteration_count`: Integer tracking total Router transitions. Incremented by Router on each invocation. Used as a safety circuit breaker — Router routes to END if this exceeds the configured maximum.
 * `micro_tasks`: Ephemeral micro-task queue managed by `dynamic_task_manager`. Wiped on macro-phase transitions to prevent context bleeding. See `spec_tool.md` §3.
 * `workspace_dir`: Absolute path to the competition workspace directory. Set once during graph initialization and read by all tools.
-* `competition_id`: Competition identifier string (e.g. `"spaceship-titanic"`). Used to look up medal score thresholds from the static table in `src/medal_thresholds.py`. Set once during graph initialization.
+* `competition_id`: Competition identifier string (e.g. `"spaceship-titanic"`). Used for workspace dir naming and logging; matched against the static ID set in `src/competition_ids.py` during graph initialization. (Originally introduced as a key into a medal-threshold table; D8 removed runtime threshold use, D24 stripped the score columns and renamed the file.)
 
 ---
 

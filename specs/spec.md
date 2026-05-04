@@ -34,6 +34,7 @@ Specific deltas (see `decisions.md` for full reasoning):
 - Model_Engineer upgraded to Opus 4.7 (was Sonnet 4.6); inherits adaptive thinking + effort=high from the opus tier in src/llm.py. Stale `claude-opus-4-6` reference in Router tier table also fixed. — [D21]
 - Time-constrained envs: Architect plans single end-to-end pipeline ("No further experimentation after primary training"), Model_Engineer respects the experimentation budget (recover from broken, lock in suboptimal). `MAX_ITERATIONS` is env-tunable via `MLE_AGENT_MAX_ITERATIONS` (default 15; GHA scenario sets 6). — [D22]
 - D19's image/audio-only anti-trees rule generalized to a modality-agnostic principle: pretrained foundation models are the PRIMARY feature representation for any classification/regression/embedding task on vision/text/audio; hand-engineered features (TF-IDF, raw spectrograms) are supplementary at best. Tabular and image-to-image/seq-to-seq are the two carve-outs. — [D23] (supersedes D19's text-branch language)
+- `src/medal_thresholds.py` renamed to `src/competition_ids.py`; score columns stripped (vestigial since D8); `get_medal_thresholds()` deleted (dead code, never called); `src/server.py` agent-card `tags` drops `"kaggle"`. Surface-level scrub — D8 prompt invariant unchanged. — [D24]
 
 ---
 

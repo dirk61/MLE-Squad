@@ -25,7 +25,6 @@ from src.llm import MODEL_MAP, call_llm
 from src.observability import resource_snapshot
 
 log = logging.getLogger("mle_agent")
-from src.medal_thresholds import get_medal_thresholds
 from src.prompts import assemble_router_input, assemble_system_prompt
 from src.state import AgentState
 from src.tool_node import dispatch_tool_calls

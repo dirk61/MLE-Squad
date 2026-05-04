@@ -9,7 +9,7 @@ This op is a **thin override of the wiki's [root /lint operation](../../../../op
 
 ## Why mle_agent needs this
 
-mle_agent has 7 artifact axes — `src/`, `prompts/`, `specs/`, `decisions.md`, `CLAUDE.md`, `README.md`, deployment config — all of which can drift independently. Three known intentional divergences already exist (D8 medal_thresholds repurposed for ID detection; D13 iteration budget 10 vs 15; D14 context-window sliding) — proof the surface is wide.
+mle_agent has 7 artifact axes — `src/`, `prompts/`, `specs/`, `decisions.md`, `CLAUDE.md`, `README.md`, deployment config — all of which can drift independently. Three known intentional divergences already exist (D8 medal-threshold table repurposed for ID detection — score columns later stripped in D24, file renamed to `competition_ids.py`; D13 iteration budget 10 vs 15; D14 context-window sliding) — proof the surface is wide.
 
 The 2026-05-01 doc-revival turn captured a working norm in `CLAUDE.md` §9: *"specs, prompts, and code can drift apart silently; when you change behavior in one, scan the other two for stale claims."* That rule is the **passive intent**. `/sync` is the **active enforcement** — periodic mechanical scan that turns the rule into actually-discovered findings.
 
@@ -56,7 +56,7 @@ When drift is detected involving these files, **propose updating the documenting
 | `src/messenger.py` | DO NOT EDIT | `decisions.md` or `CLAUDE.md` |
 | `tests/` | DO NOT REMOVE | a new D-entry or fix the test |
 | `.github/workflows/test-and-publish.yml` | edit only for build logic | `decisions.md` |
-| `src/medal_thresholds.py` | static lookup; no runtime regeneration | `decisions.md` (D8 covers; new entry if drift) |
+| `src/competition_ids.py` | static ID set; no runtime regeneration | `decisions.md` (D8 + D24 cover; new entry if drift) |
 | `src/executor.py` | edit only if changing task handling | `CLAUDE.md` §4 (role description) |
 | `src/server.py` | edit only for agent card | `CLAUDE.md` §4 |
 | `Dockerfile` | edit only for base image / system deps | `decisions.md` |

@@ -48,5 +48,6 @@ class AgentState(TypedDict):
     workspace_dir: str
 
     # Competition identifier (e.g. "spaceship-titanic").
-    # Used to look up medal score thresholds from the static table.
+    # Used for workspace dir naming and logging; matched against the static
+    # ID set in src/competition_ids.py during graph initialization.
     competition_id: str
